@@ -1,4 +1,4 @@
-# EcoAudit AI
+# EcoAudit AI (Veridalis)
 
 **A free, open-source tool for quick biodiversity screening of field survey data.**
 
