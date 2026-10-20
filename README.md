@@ -1,9 +1,10 @@
-# EcoAudit AI (Veridalis)
+# Veridalis
 
 **A free, open-source tool for quick biodiversity screening of field survey data.**
 
 [Live app](https://eco-audit-ai-avci9d7appmnzeehkhfppwf.streamlit.app) · [MIT License](LICENSE)
-EcoAudit AI takes a species-by-site survey CSV and returns standard community-ecology diversity metrics, an interactive map of sampling sites, and a downloadable screening report. It is designed for students, early-career researchers and field teams who want a transparent first look at their data before a full analysis.
+
+Veridalis takes a species-by-site survey CSV and returns standard community-ecology diversity metrics, an interactive map of sampling sites, and a downloadable screening report. It is designed for students, early-career researchers and field teams who want a transparent first look at their data before a full analysis.
 
 > **Exploratory and educational tool.** It is not a regulatory instrument and does not replace statutory Environmental Impact Assessments, protected-species surveys, or expert ecological judgement. See [Limitations](#limitations).
 
@@ -12,7 +13,8 @@ EcoAudit AI takes a species-by-site survey CSV and returns standard community-ec
 - **Diversity indices per site and for the whole landscape:** species richness (S), abundance (N), Shannon-Wiener H′ (natural log), Simpson 1−D, Pielou evenness J′, and Margalef richness.
 - **Interactive map** (Folium) with street, light, dark and satellite layers. Site markers are clustered and colour-coded by diversity class, with metrics shown on click.
 - **Adjustable screening thresholds** for H′ and minimum species richness, to flag sites that may warrant a follow-up survey.
-- **Screening report (.txt)** summarising the settings, site metrics and flags.
+- **Screening report** that summarises the settings, site metrics, flags and interpretation notes. Download it as a `.txt` file or open it as a draft email.
+- **Light and dark themes,** following your Streamlit theme setting.
 - **Built-in demonstration data** (synthetic) and a downloadable CSV template.
 
 ## Input format
@@ -20,7 +22,7 @@ EcoAudit AI takes a species-by-site survey CSV and returns standard community-ec
 Required columns: `site_id`, `latitude`, `longitude`, `species`, `abundance`
 Optional columns: `site_name`, `taxon`, `habitat`, `date`, `notes`
 
-Common aliases (`lat`, `lon`, `count`, `scientific_name`, etc.) are recognised.
+Use one row per species per site. Common aliases (`lat`, `lon`, `count`, `scientific_name`, etc.) are recognised, and a template can be downloaded from the app's sidebar.
 
 ## Methods
 
@@ -50,6 +52,10 @@ A flag means only that a site falls below the thresholds you set, and that a fol
 - Per-taxon analysis
 - Data cleaning log and species-name normalisation
 - Automated tests validated against scikit-bio
+
+## Feedback
+
+Veridalis is an early version and feedback is very welcome. If something looks scientifically wrong, breaks on your data, or would make the tool more useful, please [open an issue](https://github.com/ananyastack/eco-audit-ai/issues).
 
 ## Run locally
 
