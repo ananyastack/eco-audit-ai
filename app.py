@@ -499,16 +499,27 @@ def main() -> None:
             project_name, auditor, shannon_threshold, richness_threshold,
         )
 
-    if "screening_report" in st.session_state:
+   if "screening_report" in st.session_state:
         st.text_area("Report preview", st.session_state["screening_report"], height=420)
         
-        # Download and Email buttons stacked vertically or in full width cleanly
+        # Download button
         st.download_button(
             "Download report (.txt)",
             data=st.session_state["screening_report"],
             file_name=f"veridalis_report_{datetime.now().strftime('%Y%m%d')}.txt",
             mime="text/plain",
             use_container_width=True,
+        )
+        
+        # Web-based Gmail compose link (works universally without desktop email client apps)
+        subject = urllib.parse.quote("Veridalis Biodiversity Screening Report")
+        body = urllib.parse.quote(st.session_state["screening_report"])
+        gmail_url = f"https://mail.google.com/mail/?view=cm&fs=1&su={subject}&body={body}"
+        
+        st.markdown(
+            f'<a href="{gmail_url}" target="_blank"><button style="width:100%; background-color:#262730; color:white; border:1px solid rgba(250,250,250,0.2); padding:0.6rem 1rem; border-radius:0.5rem; cursor:pointer; font-weight:500; font-size:1rem; margin-top:0.5rem;">Send an Email (via Gmail)</button></a>',
+            unsafe_allow_html=True
+        ),
         )
         
         subject = urllib.parse.quote("Veridalis Biodiversity Screening Report")
