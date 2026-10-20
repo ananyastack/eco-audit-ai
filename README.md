@@ -1,26 +1,20 @@
 # eco-audit-ai
 https://eco-audit-ai-...streamlit.app
 
-EcoAudit AI 
-
-Automated Biodiversity & Ecological Impact Auditing Platform
-
-EcoAudit AI is a cloud-native, open-science web application designed to bridge the gap between field ecology and regulatory environmental compliance. Developed to eliminate the friction and manual error of traditional biostatistical calculations, the platform ingests raw ecological survey data and instantly generates professional habitat health metrics, interactive GIS spatial maps, and verifiable environmental compliance screening reports.
-Core Architecture & Technical Stack : The platform is built using a robust, modern open-source data science stack.
-
-Frontend & Framework: Python & Streamlit, providing a reactive, zero-installation web interface accessible across desktop and mobile browsers.
-Biostatistical Engine: Pandas and NumPy for high-performance vectorised data processing and ecological index modelling.
-Spatial Mapping: Folium and Streamlit-Folium for dynamic, interactive GIS visualization of sampling stations and habitat coordinates.
-
-Key Functional Modules: Automated Biostatistical Analysis: Computes foundational community ecology indices instantly upon data ingestion. Calculates the Shannon-Wiener Diversity Index ($H'$) using natural logarithms of species proportions.  
-Evaluates Simpson's Diversity ($1-D$), Pielou’s Evenness ($J'$), Margalef Richness, total species richness, and overall abundance.
-Interactive GIS Mapping: Plots field sampling stations on an interactive satellite and street map layer. 
-Automatically clusters spatial coordinates and color-codes site markers by ecological health/diversity classification (e.g., green for high diversity, amber for moderate, and red for low).   
-
-Regulatory Compliance Screening: Features adjustable, threshold-based screening parameters allowing users to benchmark local $H'$ values and species richness against environmental conservation targets.
-Instantly flags ecologically vulnerable stations requiring targeted intervention or remediation. 
-Automated Compliance Report Generation: Aggregates survey statistics, station breakdowns, and compliance statuses into a clean preview interface. Enables users to generate and download formal environmental compliance reports as structured .txt documentation. 
-Scientific Integrity & Design Philosophy: EcoAudit AI is engineered as a high-velocity triage and screening assistant rather than a black-box regulator. By automating complex mathematical formulas, it removes human calculation errors and accelerates initial habitat assessments. 
-
-However, it incorporates strict safeguards: It complements rather than replaces statutory Environmental Impact Assessments (EIAs) and expert field analysis. It provides transparent rationales for compliance flags, encouraging human-in-the-loop validation, seasonal survey controls, and rigorous taxonomic verification.   Open-Science & Accessibility: Designed under open-science principles, EcoAudit AI features built-in demonstration survey datasets and CSV template generators, enabling researchers, field consultants, and students to evaluate habitat health data instantly without requiring custom pre-formatting.
-Live Application: Access EcoAudit AI Live on Streamlit CloudSource Code & Documentation: Available on GitHub under the MIT Open Source License.
+EcoAudit AI: Project Description
+Ananya Samadder · October 2026
+Project description
+EcoAudit AI: an open-source web application for biodiversity screening and spatial analysis of field survey data
+EcoAudit AI is a web-based tool, developed in Python and Streamlit, that streamlines the first stage of analysing biodiversity survey data. It accepts species-by-site survey records with geographic coordinates and produces a standardised set of community-ecology metrics, effort-aware site comparisons, an interactive map of sampling locations, and a structured summary report.
+Analytical capabilities:
+For each site and for the landscape as a whole, the application computes species richness, abundance, Shannon-Wiener diversity (H′), Simpson diversity (plug-in and unbiased estimators), Pielou's evenness (J′), Margalef richness, Hill numbers (q = 0, 1, 2) and the Chao1 richness estimator. Because observed diversity is strongly dependent on sampling effort, the tool also provides individual-based rarefaction curves and richness standardised to a common sample size, allowing sites with unequal sampling effort to be compared on a defensible basis. Analyses are run per taxon group, and the user is warned when taxa with non-comparable abundance units are pooled.
+Data integrity and transparency:
+Input data are validated and cleaned automatically, including normalisation of species names, handling of missing or invalid values, and coordinate checks. Every modification is recorded in a cleaning log that is included in the output. All formulas are documented with primary references, and the implementations are verified through automated unit tests against analytical results and the scikit-bio library.
+Spatial and screening functions:
+Sampling sites are displayed on an interactive Folium map with multiple base layers and colour-coded by screening status. Users can define their own diversity thresholds, including habitat-specific values, to identify sites that may warrant follow-up survey effort. The application flags thresholds that are mathematically unreachable given a site's richness (since H′ ≤ ln S), so that screening outputs are not mistaken for assessments of habitat condition.
+Outputs
+The application generates a downloadable report documenting the settings used, taxon subset analysed, data cleaning log, site-level metrics, methodology and limitations, together with a CSV export of the metrics table.
+Scope and limitations:
+EcoAudit AI is intended as an educational and exploratory aid for students, researchers and field teams. It is not a regulatory instrument and does not replace statutory Environmental Impact Assessments, protected-species surveys or expert ecological judgement. It does not correct for imperfect detection, seasonal variation or taxonomic uncertainty.
+Technical stack and availability:
+Python, Streamlit, pandas, NumPy, SciPy, Folium and Plotly, with continuous integration via GitHub Actions. The source code is released under the MIT License at github.com/ananyastack/eco-audit-ai.
