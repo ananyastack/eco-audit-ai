@@ -203,4 +203,173 @@ def compute_global_metrics(df: pd.DataFrame) -> dict:
     }
 
 
-def compliance_flags
+def compliance_flags(site_metrics: pd.DataFrame, shannon_threshold: float, richness_threshold: int) -> pd.DataFrame:
+    flagged = site_metrics.copy()
+    flagged["flag"] = np.where(
+        (flagged["shannon"] < shannon_threshold) | (flagged["richness"] < richness_threshold),
+        "Review suggested",
+        "Within screening criteria",
+    )
+    return flagged
+
+
+# -------------------------------------------------------------------- map
+def viewer_theme() -> str:
+    """Best-effort theme detection. Only used to pick the default map tiles."""
+    try:
+        return "dark" if st.context.theme.type == "dark" else "light"
+    except Exception:
+        return "light"
+
+
+def marker_color(status: str) -> str:
+    return {"High": "green", "Moderate": "orange", "Low": "red", "Very low": "darkred"}.get(status, "blue")
+
+
+def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
+    center = [site_metrics["latitude"].mean(), site_metrics["longitude"].mean()]
+    fmap = folium.Map(location=center, zoom_start=12, tiles=None, control_scale=True)
+
+    layers = [("CartoDB positron", "Light"), ("CartoDB dark_matter", "Dark")]
+    if theme == "dark":
+        layers.reverse()
+    for tiles, name in layers:
+        folium.TileLayer(tiles, name=name).add_to(fmap)
+    folium.TileLayer("OpenStreetMap", name="Streets").add_to(fmap)
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Esri",
+        name="Satellite",
+    ).add_to(fmap)
+
+    cluster = MarkerCluster(name="Sampling sites").add_to(fmap)
+    for _, row in site_metrics.iterrows():
+        popup_html = f"""
+        <div style="font-family:Georgia,serif;min-width:220px;color:#1b1b1b">
+          <strong>{site_label(row)}</strong><br/>
+          Habitat: {row['habitat']}<br/>
+          Shannon–Wiener H′: {row['shannon']}<br/>
+          Simpson (1−D): {row['simpson']}<br/>
+          Richness S: {row['richness']}<br/>
+          Individuals N: {int(row['individuals'])}<br/>
+          Evenness J′: {row['evenness']}<br/>
+          Status: {row['status']}
+        </div>
+        """
+        folium.CircleMarker(
+            location=[row["latitude"], row["longitude"]],
+            radius=8 + min(int(row["richness"]), 20),
+            color=marker_color(row["status"]),
+            fill=True,
+            fill_opacity=0.75,
+            weight=2,
+            popup=folium.Popup(popup_html, max_width=320),
+            tooltip=f"{site_label(row)} · H′ {row['shannon']}",
+        ).add_to(cluster)
+
+    Fullscreen().add_to(fmap)
+    MiniMap(toggle_display=True).add_to(fmap)
+    folium.LayerControl().add_to(fmap)
+    return fmap
+
+
+# ----------------------------------------------------------------- report
+def build_report(
+    survey: pd.DataFrame,
+    site_metrics: pd.DataFrame,
+    global_metrics: dict,
+    flags: pd.DataFrame,
+    project_name: str,
+    auditor: str,
+    shannon_threshold: float,
+    richness_threshold: int,
+) -> str:
+    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    review_sites = flags[flags["flag"] == "Review suggested"]
+    habitat_summary = (
+        survey.groupby("habitat")["species"].nunique().sort_values(ascending=False).to_string()
+    )
+    site_table = site_metrics[
+        ["site_id", "site_name", "habitat", "richness", "shannon", "simpson", "evenness", "status"]
+    ].to_string(index=False)
+    flag_table = (
+        review_sites[["site_id", "site_name", "shannon", "richness", "status", "rationale"]].to_string(index=False)
+        if not review_sites.empty
+        else "None."
+    )
+
+    return f"""{APP_NAME.upper()} - BIODIVERSITY SCREENING REPORT
+================================================
+Project: {project_name or "Untitled habitat audit"}
+Auditor: {auditor or "Not specified"}
+Generated: {generated}
+Tool: {APP_NAME}
+
+1. SCOPE
+This screening report summarises biodiversity sampling records and mapped
+sampling locations using Shannon-Wiener diversity (H'), Simpson diversity
+(1-D), Pielou evenness (J') and Margalef richness.
+
+2. DATA SUMMARY
+Sampling sites: {global_metrics['sites']}
+Survey records: {global_metrics['records']}
+Species richness (S): {global_metrics['richness']}
+Individuals (N): {int(global_metrics['individuals'])}
+Landscape Shannon-Wiener H': {global_metrics['shannon']}
+Landscape Simpson 1-D: {global_metrics['simpson']}
+Landscape evenness J': {global_metrics['evenness']}
+Margalef index: {global_metrics['margalef']}
+
+3. SCREENING CRITERIA
+Shannon-Wiener review threshold: H' < {shannon_threshold:.2f}
+Richness review threshold: S < {richness_threshold}
+Sites suggested for review: {len(review_sites)} of {len(site_metrics)}
+
+4. HABITAT SPECIES COUNTS
+{habitat_summary}
+
+5. SITE-LEVEL BIODIVERSITY METRICS
+{site_table}
+
+6. SCREENING FLAGS
+{flag_table}
+
+7. INTERPRETATION NOTES
+- H' bands are rough guides and vary by taxon and habitat.
+- H' cannot exceed ln(S), so sites with few species score low regardless of
+  habitat quality.
+- Taxa are pooled; abundance units across groups are not comparable.
+- Indices are not standardised for sampling effort.
+- A flag means only that a site fell below the thresholds you set. It is not
+  a judgement of legal compliance or habitat condition.
+- This tool does not replace statutory EIA, protected-species surveys or
+  expert ecological judgement.
+
+8. SUGGESTED NEXT STEPS
+- Consider revisiting flagged sites in the appropriate survey season.
+- Confirm taxonomy and sampling-effort consistency across sites.
+- Archive the raw CSV, map outputs and this report with the project file.
+
+Report generated by {APP_NAME}.
+"""
+
+
+# ------------------------------------------------------------------ style
+CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,700&family=Source+Sans+3:wght@400;600&display=swap');
+
+html, body, [class*="css"] { font-family: "Source Sans 3", sans-serif; }
+h1, h2, h3, h4 { font-family: "Fraunces", serif !important; }
+
+/* Prevent ultra-wide squishing and give top breathing room so header isn't cut off */
+.block-container {
+    max-width: 92rem !important;
+    padding-top: 3.5rem;
+    padding-right: 3rem;
+    padding-left: 3rem;
+}
+
+.stApp {
+    background-image:
+      radial-gradient(1200px 500px at 8% -10%, rgba(60, 170, 1
