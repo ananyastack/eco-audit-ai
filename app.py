@@ -207,7 +207,39 @@ def compute_global_metrics(df: pd.DataFrame) -> dict[str, float | int]:
         "margalef": round(margalef_index(richness, individuals), 3),
     }
 
+def apply_theme() -> None:
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560;9..144,700&family=Source+Sans+3:wght@400;600&display=swap');
+        html, body, [class*="css"] { font-family: "Source Sans 3", sans-serif; }
+        h1, h2, h3 { font-family: "Fraunces", serif; }
 
+        /* Subtle green glow that sits on top of whichever theme is active */
+        .stApp {
+            background-image:
+              radial-gradient(1200px 500px at 8% -10%, rgba(60,160,110,0.16) 0%, transparent 55%),
+              radial-gradient(900px 420px at 100% 0%, rgba(60,160,110,0.10) 0%, transparent 50%);
+        }
+        .hero {
+            padding: 1.15rem 1.4rem;
+            border: 1px solid rgba(128,128,128,0.30);
+            background: rgba(128,128,128,0.08);
+            border-radius: 18px;
+            margin-bottom: 0.8rem;
+        }
+        .hero p { opacity: 0.8; margin: 0.35rem 0 0 0; }
+        .metric-note { opacity: 0.75; font-size: 0.92rem; }
+        div[data-testid="stMetric"] {
+            background: rgba(128,128,128,0.08);
+            border: 1px solid rgba(128,128,128,0.25);
+            padding: 0.6rem 0.8rem;
+            border-radius: 14px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 def marker_color(status: str) -> str:
     return {
         "High": "green",
@@ -382,7 +414,15 @@ def apply_theme() -> None:
         """,
         unsafe_allow_html=True,
     )
-
+git clone https://github.com/ananyastack/<repo-name>.git backup-copy
+cd <repo-name>
+pip install git-filter-repo
+git filter-repo --force --message-callback '
+import re
+return re.sub(rb"\n*Co-authored-by: Cursor[^\n]*", b"", message)
+'
+git remote add origin https://github.com/ananyastack/<repo-name>.git
+git push --force origin main
 
 def load_survey(uploaded) -> pd.DataFrame:
     if uploaded is None:
