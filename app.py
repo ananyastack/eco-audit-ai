@@ -362,10 +362,10 @@ CSS = """
 html, body, [class*="css"] { font-family: "Source Sans 3", sans-serif; }
 h1, h2, h3, h4 { font-family: "Fraunces", serif !important; }
 
-/* Prevent squishing on ultra-wide screens */
+/* Prevent ultra-wide squishing and give top breathing room so header isn't cut off */
 .block-container {
     max-width: 92rem !important;
-    padding-top: 2rem;
+    padding-top: 3.5rem;
     padding-right: 3rem;
     padding-left: 3rem;
 }
@@ -382,6 +382,7 @@ h1, h2, h3, h4 { font-family: "Fraunces", serif !important; }
     background: rgba(128, 128, 128, 0.08);
     border-radius: 18px;
     margin-bottom: 0.8rem;
+    margin-top: 1rem;
 }
 .hero h1 { margin: 0; padding: 0; }
 .hero p { margin: 0.35rem 0 0 0; opacity: 0.85; }
@@ -467,17 +468,19 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    map_col, table_col = st.columns([1.35, 1])
-    with map_col:
-        st.subheader("Sampling site map")
-        st_folium(build_map(site_metrics, theme), height=520, use_container_width=True, returned_objects=[], key="site_map")
-    with table_col:
-        st.subheader("Site biodiversity metrics")
-        st.dataframe(
-            flags[["site_id", "site_name", "habitat", "richness", "shannon",
-                   "simpson", "evenness", "status", "flag"]],
-            hide_index=True,
-        )
+    # Stacked vertically (full width) so nothing clamps on ultra-wide screens
+    st.subheader("Sampling site map")
+    st_folium(build_map(site_metrics, theme), height=520, use_container_width=True, returned_objects=[], key="site_map")
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    st.subheader("Site biodiversity metrics")
+    st.dataframe(
+        flags[["site_id", "site_name", "habitat", "richness", "shannon",
+               "simpson", "evenness", "status", "flag"]],
+        hide_index=True,
+        use_container_width=True,
+    )
 
     st.subheader("Species records")
     habitat_filter = st.multiselect(
@@ -486,7 +489,7 @@ def main() -> None:
         default=[],
     )
     visible = survey if not habitat_filter else survey[survey["habitat"].isin(habitat_filter)]
-    st.dataframe(visible, hide_index=True, height=280)
+    st.dataframe(visible, hide_index=True, height=280, use_container_width=True)
 
     st.subheader("Screening report")
     st.caption("Generated from the current metrics and thresholds. Not a legal determination.")
@@ -499,23 +502,22 @@ def main() -> None:
     if "screening_report" in st.session_state:
         st.text_area("Report preview", st.session_state["screening_report"], height=420)
         
-        # Side-by-side export buttons: Download vs. Send Email
-        col_dl, col_mail = st.columns([1, 1])
-        with col_dl:
-            st.download_button(
-                "Download report (.txt)",
-                data=st.session_state["screening_report"],
-                file_name=f"veridalis_report_{datetime.now().strftime('%Y%m%d')}.txt",
-                mime="text/plain",
-            )
-        with col_mail:
-            subject = urllib.parse.quote("Veridalis Biodiversity Screening Report")
-            body = urllib.parse.quote(st.session_state["screening_report"])
-            mail_url = f"mailto:?subject={subject}&body={body}"
-            st.markdown(
-                f'<a href="{mail_url}" target="_blank"><button style="width:100%; background-color:#262730; color:white; border:1px solid rgba(250,250,250,0.2); padding:0.45rem 0.8rem; border-radius:0.5rem; cursor:pointer; font-weight:400;">Send an Email</button></a>',
-                unsafe_allow_html=True
-            )
+        # Download and Email buttons stacked vertically or in full width cleanly
+        st.download_button(
+            "Download report (.txt)",
+            data=st.session_state["screening_report"],
+            file_name=f"veridalis_report_{datetime.now().strftime('%Y%m%d')}.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+        
+        subject = urllib.parse.quote("Veridalis Biodiversity Screening Report")
+        body = urllib.parse.quote(st.session_state["screening_report"])
+        mail_url = f"mailto:?subject={subject}&body={body}"
+        st.markdown(
+            f'<a href="{mail_url}" target="_blank"><button style="width:100%; background-color:#262730; color:white; border:1px solid rgba(250,250,250,0.2); padding:0.6rem 1rem; border-radius:0.5rem; cursor:pointer; font-weight:500; font-size:1rem; margin-top:0.5rem;">Send an Email</button></a>',
+            unsafe_allow_html=True
+        )
 
 
 if __name__ == "__main__":
