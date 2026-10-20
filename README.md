@@ -1,22 +1,75 @@
-# eco-audit-ai
-https://eco-audit-ai-...streamlit.app
-EcoAudit AI: Project Description
-Ananya Samadder · October 2026
-Project description
-EcoAudit AI: an open-source web application for biodiversity screening and spatial analysis of field survey data
-EcoAudit AI is a web-based tool, developed in Python and Streamlit, that streamlines the first stage of analysing biodiversity survey data. It accepts species-by-site survey records with geographic coordinates and produces a standardised set of community-ecology metrics, effort-aware site comparisons, an interactive map of sampling locations, and a structured summary report.
-Analytical capabilities
-For each site and for the landscape as a whole, the application computes species richness, abundance, Shannon-Wiener diversity (H′), Simpson diversity (plug-in and unbiased estimators), Pielou's evenness (J′), Margalef richness, Hill numbers (q = 0, 1, 2) and the Chao1 richness estimator. Because observed diversity is strongly dependent on sampling effort, the tool also provides individual-based rarefaction curves and richness standardised to a common sample size, allowing sites with unequal sampling effort to be compared on a defensible basis. Analyses are run per taxon group, and the user is warned when taxa with non-comparable abundance units are pooled.
-Data integrity and transparency
-Input data are validated and cleaned automatically, including normalisation of species names, handling of missing or invalid values, and coordinate checks. Every modification is recorded in a cleaning log that is included in the output. All formulas are documented with primary references, and the implementations are verified through automated unit tests against analytical results and the scikit-bio library.
-Spatial and screening functions
-Sampling sites are displayed on an interactive Folium map with multiple base layers and colour-coded by screening status. Users can define their own diversity thresholds, including habitat-specific values, to identify sites that may warrant follow-up survey effort. The application flags thresholds that are mathematically unreachable given a site's richness (since H′ ≤ ln S), so that screening outputs are not mistaken for assessments of habitat condition.
-Outputs
-The application generates a downloadable report documenting the settings used, taxon subset analysed, data cleaning log, site-level metrics, methodology and limitations, together with a CSV export of the metrics table.
-Scope and limitations
-EcoAudit AI is intended as an educational and exploratory aid for students, researchers and field teams. It is not a regulatory instrument and does not replace statutory Environmental Impact Assessments, protected-species surveys or expert ecological judgement. It does not correct for imperfect detection, seasonal variation or taxonomic uncertainty.
-Technical stack and availability
-Python, Streamlit, pandas, NumPy, SciPy, Folium and Plotly, with continuous integration via GitHub Actions. The source code is released under the MIT License at github.com/ananyastack/eco-audit-ai.
-Designed and developed EcoAudit AI, an open-source Python/Streamlit application that converts field survey data into diversity metrics (Shannon-Wiener, Simpson, Pielou, Margalef, Hill numbers, Chao1), rarefaction-based comparisons of sites with unequal sampling effort, interactive site maps and structured screening reports. Implementations are validated against scikit-bio through automated testing. Released under the MIT License as an educational and exploratory tool for students and researchers.
-Before sharing
-Keep only the capabilities that are implemented. Hill numbers, rarefaction, per-taxon analysis, the cleaning log and the tests are still on the Cursor task list.
+**A free, open-source tool for quick biodiversity screening of field survey data.**
+
+[Live app](https://YOUR-APP-URL.streamlit.app) · MIT License
+
+EcoAudit AI takes a species-by-site survey CSV and returns standard community-ecology diversity metrics, an interactive map of sampling sites, and a downloadable screening report. It is designed for students, early-career researchers and field teams who want a transparent first look at their data before a full analysis.
+
+> **Exploratory and educational tool.** It is not a regulatory instrument and does not replace statutory Environmental Impact Assessments, protected-species surveys, or expert ecological judgement. See [Limitations](#limitations).
+
+## Features
+
+- **Diversity indices per site and for the whole landscape:** species richness (S), abundance (N), Shannon-Wiener H′ (natural log), Simpson 1−D, Pielou evenness J′, and Margalef richness.
+- **Interactive map** (Folium) with street, light, dark and satellite layers. Site markers are clustered and colour-coded by diversity class, with metrics shown on click.
+- **Adjustable screening thresholds** for H′ and minimum species richness, to flag sites that may warrant a follow-up survey.
+- **Screening report (.txt)** summarising the settings, site metrics and flags.
+- **Built-in demonstration data** (synthetic) and a downloadable CSV template.
+
+## Input format
+
+Required columns: `site_id`, `latitude`, `longitude`, `species`, `abundance`
+Optional columns: `site_name`, `taxon`, `habitat`, `date`, `notes`
+
+Common aliases (`lat`, `lon`, `count`, `scientific_name`, etc.) are recognised.
+
+## Methods
+
+| Metric | Formula | Reference |
+|---|---|---|
+| Shannon-Wiener H′ | −Σ pᵢ ln pᵢ | Shannon (1948) |
+| Simpson 1−D | 1 − Σ pᵢ² | Simpson (1949) |
+| Pielou evenness J′ | H′ / ln S | Pielou (1966) |
+| Margalef richness | (S − 1) / ln N | Margalef (1958) |
+
+## Interpreting screening flags
+
+A flag means only that a site falls below the thresholds you set, and that a follow-up survey may be worth considering. It is not a judgement of legal compliance or habitat condition. Note that H′ cannot exceed ln S, so a site with few species will always score low on H′ regardless of habitat quality. The demonstration data is synthetic and should not be interpreted ecologically.
+
+## Limitations
+
+- Indices depend on sampling effort, season, detectability and taxonomic resolution. The current version does not standardise for unequal effort.
+- Taxa are pooled when computing indices, so abundance units across groups (for example plant counts and bird counts) are not comparable.
+- Commonly quoted H′ bands vary by taxon and habitat and should be treated as rough guides.
+- No correction for imperfect detection or spatial autocorrelation.
+- Outputs must not be the sole basis for regulatory, legal or land-management decisions.
+
+## Roadmap
+
+- Hill numbers and the Chao1 estimator
+- Individual-based rarefaction for comparing sites with unequal effort
+- Per-taxon analysis
+- Data cleaning log and species-name normalisation
+- Automated tests validated against scikit-bio
+
+## Run locally
+
+```bash
+git clone https://github.com/ananyastack/eco-audit-ai.git
+cd eco-audit-ai
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+## Tech stack
+
+Python · Streamlit · pandas · NumPy · Folium / streamlit-folium
+
+## References
+
+- Margalef, R. (1958). Information theory in ecology. *General Systems*, 3, 36–71.
+- Pielou, E. C. (1966). The measurement of diversity in different types of environments. *Journal of Theoretical Biology*, 13, 131–144.
+- Shannon, C. E. (1948). A mathematical theory of communication. *Bell System Technical Journal*, 27, 379–423.
+- Simpson, E. H. (1949). Measurement of diversity. *Nature*, 163, 688.
+
+## License
+
+Released under the [MIT License](LICENSE). © 2026 Ananya Samadder.
