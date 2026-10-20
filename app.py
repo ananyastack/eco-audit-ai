@@ -298,10 +298,10 @@ def build_report(
 
     return f"""ECOAUDIT AI — ENVIRONMENTAL COMPLIANCE REPORT
 ================================================
-Project: {project_name}
-Auditor: {auditor or "Not specified"}
+Project: {sample_data}
+Auditor: {auditor or "Ananya Samadder"}
 Generated: {generated}
-Tool: {APP_NAME}
+Tool: {Eco-Audir_AI}
 
 1. SCOPE
 This screening audit summarises biodiversity sampling records and spatial site
@@ -346,7 +346,7 @@ Sites requiring review: {len(review_sites)} of {len(site_metrics)}
   construction or land-management decisions.
 - Archive raw CSV, map outputs, and this report with the project file.
 
-Report generated automatically by {APP_NAME}.
+Report generated automatically by {Eco-Audir_AI}.
 """
 
 
