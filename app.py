@@ -417,12 +417,6 @@ def apply_theme() -> None:
 git clone https://github.com/ananyastack/<repo-name>.git backup-copy
 cd <repo-name>
 pip install git-filter-repo
-git filter-repo --force --message-callback '
-import re
-return re.sub(rb"\n*Co-authored-by: Cursor[^\n]*", b"", message)
-'
-git remote add origin https://github.com/ananyastack/<repo-name>.git
-git push --force origin main
 
 def load_survey(uploaded) -> pd.DataFrame:
     if uploaded is None:
