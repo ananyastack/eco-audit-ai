@@ -1,5 +1,5 @@
 """
-EcoAudit AI — ecological biodiversity and spatial mapping audit tool.
+EcoAudit AI (Veridalis)— ecological biodiversity and spatial mapping audit tool.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import streamlit as st
 from folium.plugins import Fullscreen, MarkerCluster, MiniMap
 from streamlit_folium import st_folium
 
-APP_NAME = "EcoAudit AI"
+APP_NAME = "Veridalis"
 REQUIRED_COLUMNS = [
     "site_id",
     "latitude",
@@ -346,7 +346,7 @@ Sites requiring review: {len(review_sites)} of {len(site_metrics)}
   construction or land-management decisions.
 - Archive raw CSV, map outputs, and this report with the project file.
 
-Report generated automatically by {APP_NAME}.
+Report generated automatically by {Veridalis}.
 """
 
 
@@ -392,13 +392,13 @@ def load_survey(uploaded) -> pd.DataFrame:
 
 
 def main() -> None:
-    st.set_page_config(page_title=APP_NAME, page_icon="🌿", layout="wide")
+    st.set_page_config(page_title=Veridalis, page_icon="🌿", layout="wide")
     apply_theme()
 
     st.markdown(
         f"""
         <div class="hero">
-          <h1>{APP_NAME}</h1>
+          <h1>{Veridalis}</h1>
           <p>Ecological biodiversity screening and spatial mapping for field surveys,
           habitat audits, and environmental compliance review.</p>
         </div>
