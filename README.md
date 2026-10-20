@@ -1,7 +1,8 @@
+# EcoAudit AI
+
 **A free, open-source tool for quick biodiversity screening of field survey data.**
 
-[Live app]([https://YOUR-APP-URL.streamlit.app](https://eco-audit-ai-avci9d7appmnzeehkhfppwf.streamlit.app/)) · MIT License
-
+[Live app](https://eco-audit-ai-avci9d7appmnzeehkhfppwf.streamlit.app) · [MIT License](LICENSE)
 EcoAudit AI takes a species-by-site survey CSV and returns standard community-ecology diversity metrics, an interactive map of sampling sites, and a downloadable screening report. It is designed for students, early-career researchers and field teams who want a transparent first look at their data before a full analysis.
 
 > **Exploratory and educational tool.** It is not a regulatory instrument and does not replace statutory Environmental Impact Assessments, protected-species surveys, or expert ecological judgement. See [Limitations](#limitations).
