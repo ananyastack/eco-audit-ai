@@ -131,7 +131,9 @@ def shannon_wiener(counts: Iterable[float]) -> float:
     if values.size == 0:
         return 0.0
     p = values / values.sum()
-    return float(-(p * np.log(p)).sum())
+    val = float(-(p * np.log(p)).sum())
+    # Suppress IEEE-754 negative zero floating point artifact
+    return 0.0 if abs(val) < 1e-9 else val
 
 
 def simpson_diversity(counts: Iterable[float]) -> float:
@@ -139,19 +141,22 @@ def simpson_diversity(counts: Iterable[float]) -> float:
     if values.size == 0:
         return 0.0
     p = values / values.sum()
-    return float(1.0 - np.square(p).sum())
+    val = float(1.0 - np.square(p).sum())
+    return 0.0 if abs(val) < 1e-9 else val
 
 
 def pielou_evenness(h_index: float, richness: int) -> float:
     if richness <= 1:
         return 0.0
-    return float(h_index / math.log(richness))
+    val = float(h_index / math.log(richness))
+    return 0.0 if abs(val) < 1e-9 else val
 
 
 def margalef_index(richness: int, individuals: float) -> float:
     if individuals <= 1:
         return 0.0
-    return float((richness - 1) / math.log(individuals))
+    val = float((richness - 1) / math.log(individuals))
+    return 0.0 if abs(val) < 1e-9 else val
 
 
 def classify_shannon(h_index: float) -> tuple[str, str]:
@@ -354,11 +359,11 @@ def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
             '<div style="font-family:Georgia,serif;min-width:220px;color:#1b1b1b">'
             f"<strong>{site_label(row)}</strong><br/>"
             f"Habitat: {row['habitat']}<br/>"
-            f"Shannon–Wiener H′: {row['shannon']}<br/>"
-            f"Simpson (1−D): {row['simpson']}<br/>"
+            f"Shannon–Wiener H′: {row['shannon']:.3f}<br/>"
+            f"Simpson (1−D): {row['simpson']:.3f}<br/>"
             f"Richness S: {row['richness']}<br/>"
             f"Individuals N: {int(row['individuals'])}<br/>"
-            f"Evenness J′: {row['evenness']}<br/>"
+            f"Evenness J′: {row['evenness']:.3f}<br/>"
             f"Status: {row['status']}"
             "</div>"
         )
@@ -370,7 +375,7 @@ def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
             fill_opacity=0.75,
             weight=2,
             popup=folium.Popup(popup_html, max_width=320),
-            tooltip=f"{site_label(row)} · H′ {row['shannon']}",
+            tooltip=f"{site_label(row)} · H′ {row['shannon']:.3f}",
         ).add_to(cluster)
 
     Fullscreen().add_to(fmap)
@@ -420,10 +425,10 @@ def build_report(
         f"Survey records: {global_metrics['records']}\n"
         f"Species richness (S): {global_metrics['richness']}\n"
         f"Individuals (N): {int(global_metrics['individuals'])}\n"
-        f"Landscape Shannon-Wiener H': {global_metrics['shannon']}\n"
-        f"Landscape Simpson 1-D: {global_metrics['simpson']}\n"
-        f"Landscape evenness J': {global_metrics['evenness']}\n"
-        f"Margalef index: {global_metrics['margalef']}\n\n"
+        f"Landscape Shannon-Wiener H': {global_metrics['shannon']:.3f}\n"
+        f"Landscape Simpson 1-D: {global_metrics['simpson']:.3f}\n"
+        f"Landscape evenness J': {global_metrics['evenness']:.3f}\n"
+        f"Margalef index: {global_metrics['margalef']:.3f}\n\n"
         "3. SCREENING CRITERIA\n"
         f"Shannon-Wiener review threshold: H' < {shannon_threshold:.2f}\n"
         f"Richness review threshold: S < {richness_threshold}\n"
@@ -507,9 +512,9 @@ def main() -> None:
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Sites", global_metrics["sites"])
     k2.metric("Species richness", global_metrics["richness"])
-    k3.metric("Shannon–Wiener H′", global_metrics["shannon"])
-    k4.metric("Simpson 1−D", global_metrics["simpson"])
-    k5.metric("Evenness J′", global_metrics["evenness"])
+    k3.metric("Shannon–Wiener H′", f"{global_metrics['shannon']:.3f}")
+    k4.metric("Simpson 1−D", f"{global_metrics['simpson']:.3f}")
+    k5.metric("Evenness J′", f"{global_metrics['evenness']:.3f}")
     st.markdown(
         '<p style="font-size: 0.92rem; opacity: 0.8;">H′ uses natural logarithms of species proportions. '
         "Site markers are coloured by diversity class: green high, amber moderate, red low.</p>",
