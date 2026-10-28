@@ -18,8 +18,6 @@ import streamlit as st
 from folium.plugins import Fullscreen, MarkerCluster, MiniMap
 from streamlit_folium import st_folium
 
-from harmonize import flag_quality_issues, harmonization_report, map_to_darwin_core
-
 APP_NAME = "Veridalis"
 REQUIRED_COLUMNS = ["site_id", "latitude", "longitude", "species", "abundance"]
 OPTIONAL_COLUMNS = ["site_name", "taxon", "habitat", "date", "notes"]
@@ -52,6 +50,74 @@ SAMPLE_CSV = (
     "URB-05,Canal Cut,51.5112,-0.0891,Rattus norvegicus,11,Mammal,Urban,2026-04-16\n"
     "URB-05,Canal Cut,51.5112,-0.0891,Buddleja davidii,28,Plant,Urban,2026-04-16\n"
 )
+
+
+# ----------------------------------------------------------- harmonization & qc
+DARWIN_CORE_TERMS = {
+    "site_id": ["site_id", "station", "station_id", "locality", "locationid", "site"],
+    "species": ["species", "scientificname", "scientific_name", "taxon_name", "verbatimscientificname"],
+    "latitude": ["latitude", "decimallatitude", "lat", "decimal_latitude"],
+    "longitude": ["longitude", "decimallongitude", "lon", "lng", "decimal_longitude"],
+    "abundance": ["abundance", "individualcount", "count", "n", "organismquantity"],
+    "date": ["eventdate", "date", "year", "event_date"],
+    "habitat": ["habitat", "verbatimhabitat"],
+}
+
+
+def map_to_darwin_core(df: pd.DataFrame) -> pd.DataFrame:
+    raw_cols = df.loc[:, ~df.columns.duplicated()].copy()
+    col_map = {str(c).strip().lower().replace(" ", "_"): c for c in raw_cols.columns}
+    rename_dict = {}
+    for target_term, candidates in DARWIN_CORE_TERMS.items():
+        for candidate in candidates:
+            if candidate in col_map:
+                rename_dict[col_map[candidate]] = target_term
+                break
+
+    standardized = raw_cols.rename(columns=rename_dict)
+    return standardized.loc[:, ~standardized.columns.duplicated()].copy()
+
+
+def flag_quality_issues(df: pd.DataFrame) -> pd.DataFrame:
+    audited = df.copy()
+    flags = []
+
+    for _, row in audited.iterrows():
+        row_flags = []
+        lat = pd.to_numeric(row.get("latitude"), errors="coerce")
+        lon = pd.to_numeric(row.get("longitude"), errors="coerce")
+
+        if pd.isna(lat) or pd.isna(lon):
+            row_flags.append("MISSING_COORDINATES")
+        else:
+            if lat == 0.0 and lon == 0.0:
+                row_flags.append("ZERO_COORDINATES")
+            if not (-90 <= lat <= 90):
+                row_flags.append("INVALID_LATITUDE")
+            if not (-180 <= lon <= 180):
+                row_flags.append("INVALID_LONGITUDE")
+
+        species_val = str(row.get("species", "")).strip()
+        if not species_val or species_val.lower() in ("nan", "none", "unknown"):
+            row_flags.append("MISSING_TAXON")
+
+        flags.append("; ".join(row_flags) if row_flags else "OK")
+
+    audited["quality_flag"] = flags
+    return audited
+
+
+def harmonization_report(df: pd.DataFrame) -> dict:
+    total = len(df)
+    clean = int((df["quality_flag"] == "OK").sum())
+    flagged = total - clean
+    usability = round((clean / total * 100), 2) if total > 0 else 0.0
+    return {
+        "total_records": total,
+        "clean_records": clean,
+        "flagged_records": flagged,
+        "usability_pct": usability,
+    }
 
 
 # ---------------------------------------------------------------- metrics
