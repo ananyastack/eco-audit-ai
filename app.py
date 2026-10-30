@@ -132,7 +132,6 @@ def shannon_wiener(counts: Iterable[float]) -> float:
         return 0.0
     p = values / values.sum()
     val = float(-(p * np.log(p)).sum())
-    # Suppress IEEE-754 negative zero floating point artifact
     return 0.0 if abs(val) < 1e-9 else val
 
 
@@ -245,8 +244,13 @@ def load_survey(uploaded) -> tuple[pd.DataFrame, dict | None]:
         return validate_survey(normalize_columns(raw)), None
 
     content = uploaded.getvalue().decode("utf-8", errors="ignore")
-    sep = "\t" if "\t" in content.splitlines()[0] else ","
-    raw = pd.read_csv(io.StringIO(content), sep=sep, low_memory=False)
+    
+    # Delimiter sniffer: handles standard commas, tabs, and semicolon formats automatically
+    try:
+        raw = pd.read_csv(io.StringIO(content), sep=None, engine="python", low_memory=False)
+    except Exception:
+        sep = "\t" if "\t" in content.splitlines()[0] else ","
+        raw = pd.read_csv(io.StringIO(content), sep=sep, low_memory=False)
 
     raw = raw.loc[:, ~raw.columns.duplicated()].copy()
 
@@ -470,7 +474,7 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Survey data")
-        uploaded = st.file_uploader("Upload sampling CSV", type=["csv", "txt"])
+        uploaded = st.file_uploader("Upload sampling CSV", type=["csv", "txt", "tsv"])
         st.caption(
             "Required columns: site_id, latitude, longitude, species, abundance. "
             "Optional: site_name, taxon, habitat, date, notes."
