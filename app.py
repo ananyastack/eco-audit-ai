@@ -439,77 +439,74 @@ def marker_color(status: str) -> str:
 
 
 def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
-    center = [site_metrics["latitude"].mean(), site_metrics["longitude"].mean()]
+    center = [float(site_metrics["latitude"].mean()), float(site_metrics["longitude"].mean())]
     fmap = folium.Map(location=center, zoom_start=12, tiles=None, control_scale=True)
 
-  # Free, reliable basemap layers with no API key requirements
-  # Dark theme default: Stadia/Carto dark or OpenStreetMap
-  is_dark = theme == "dark"
+    is_dark = theme == "dark"
 
-  folium.TileLayer(
-      tiles="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-      attr="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors &copy; <a href='https://carto.com/attributions'>CARTO</a>",
-      name="Light",
-      subdomains="abcd",
-      max_zoom=20,
-      show=not is_dark,
-  ).add_to(fmap)
+    folium.TileLayer(
+        tiles="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+        attr="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors &copy; <a href='https://carto.com/attributions'>CARTO</a>",
+        name="Light",
+        subdomains="abcd",
+        max_zoom=20,
+        show=not is_dark,
+    ).add_to(fmap)
 
-  folium.TileLayer(
-      tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-      attr="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors &copy; <a href='https://carto.com/attributions'>CARTO</a>",
-      name="Dark",
-      subdomains="abcd",
-      max_zoom=20,
-      show=is_dark,
-  ).add_to(fmap)
+    folium.TileLayer(
+        tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+        attr="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors &copy; <a href='https://carto.com/attributions'>CARTO</a>",
+        name="Dark",
+        subdomains="abcd",
+        max_zoom=20,
+        show=is_dark,
+    ).add_to(fmap)
 
-  folium.TileLayer(
-      tiles="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-      attr="&copy; OpenStreetMap contributors",
-      name="Streets",
-      max_zoom=19,
-      show=False,
-  ).add_to(fmap)
+    folium.TileLayer(
+        tiles="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+        attr="&copy; OpenStreetMap contributors",
+        name="Streets",
+        max_zoom=19,
+        show=False,
+    ).add_to(fmap)
 
-  folium.TileLayer(
-      tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      attr="Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community",
-      name="Satellite",
-      max_zoom=18,
-      show=False,
-  ).add_to(fmap)
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Tiles &copy; Esri",
+        name="Satellite",
+        max_zoom=18,
+        show=False,
+    ).add_to(fmap)
 
-  cluster = MarkerCluster(name="Sampling sites").add_to(fmap)
-  for _, row in site_metrics.iterrows():
-    popup_html = (
-        '<div style="font-family:Georgia,serif;min-width:220px;color:#1b1b1b">'
-        f"<strong>{site_label(row)}</strong><br/>"
-        f"Habitat: {row['habitat']}<br/>"
-        f"Shannon–Wiener H′: {row['shannon']:.3f}<br/>"
-        f"Simpson (1−D): {row['simpson']:.3f}<br/>"
-        f"Richness S: {row['richness']}<br/>"
-        f"Individuals N: {int(row['individuals'])}<br/>"
-        f"Evenness J′: {row['evenness']:.3f}<br/>"
-        f"Status: {row['status']}"
-        "</div>"
-    )
-    folium.CircleMarker(
-        location=[row["latitude"], row["longitude"]],
-        radius=8 + min(int(row["richness"]), 20),
-        color=marker_color(row["status"]),
-        fill=True,
-        fill_opacity=0.75,
-        weight=2,
-        popup=folium.Popup(popup_html, max_width=320),
-        tooltip=f"{site_label(row)} · H′ {row['shannon']:.3f}",
-    ).add_to(cluster)
+    cluster = MarkerCluster(name="Sampling sites").add_to(fmap)
+    for _, row in site_metrics.iterrows():
+        popup_html = (
+            '<div style="font-family:Georgia,serif;min-width:220px;color:#1b1b1b">'
+            f"<strong>{site_label(row)}</strong><br/>"
+            f"Habitat: {row['habitat']}<br/>"
+            f"Shannon–Wiener H′: {row['shannon']:.3f}<br/>"
+            f"Simpson (1−D): {row['simpson']:.3f}<br/>"
+            f"Richness S: {row['richness']}<br/>"
+            f"Individuals N: {int(row['individuals'])}<br/>"
+            f"Evenness J′: {row['evenness']:.3f}<br/>"
+            f"Status: {row['status']}"
+            "</div>"
+        )
+        folium.CircleMarker(
+            location=[row["latitude"], row["longitude"]],
+            radius=8 + min(int(row["richness"]), 20),
+            color=marker_color(row["status"]),
+            fill=True,
+            fill_opacity=0.75,
+            weight=2,
+            popup=folium.Popup(popup_html, max_width=320),
+            tooltip=f"{site_label(row)} · H′ {row['shannon']:.3f}",
+        ).add_to(cluster)
 
-  Fullscreen().add_to(fmap)
-  MiniMap(toggle_display=True).add_to(fmap)
-  folium.LayerControl().add_to(fmap)
-  return fmap
-
+    Fullscreen().add_to(fmap)
+    MiniMap(toggle_display=True).add_to(fmap)
+    folium.LayerControl().add_to(fmap)
+    return fmap
 
 # ----------------------------------------------------------------- report
 def build_report(
