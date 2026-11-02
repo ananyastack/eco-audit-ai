@@ -438,45 +438,35 @@ def marker_color(status: str) -> str:
     return {"High": "green", "Moderate": "orange", "Low": "red", "Very low": "darkred"}.get(status, "blue")
 
 
+# Base maps that need no API key. CARTO's free tiles now require a key
+# (without one they show an "API KEY REQUIRED" watermark), so they are not used.
+ESRI_ATTR = "Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS user community"
+OSM_ATTR = "© OpenStreetMap contributors"
+ESRI_REST = "https://server.arcgisonline.com/ArcGIS/rest/services"
+
+# (name, url, attribution, max native zoom)
+BASE_LAYERS = [
+    ("Light", f"{ESRI_REST}/Canvas/World_Light_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_ATTR, 16),
+    ("Dark", f"{ESRI_REST}/Canvas/World_Dark_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_ATTR, 16),
+    ("Streets", "https://tile.openstreetmap.org/{z}/{x}/{y}.png", OSM_ATTR, 19),
+    ("Satellite", f"{ESRI_REST}/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}", "Tiles © Esri", 19),
+]
+
+
 def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
-    center = [float(site_metrics["latitude"].mean()), float(site_metrics["longitude"].mean())]
-    fmap = folium.Map(location=center, zoom_start=12, tiles=None, control_scale=True)
+    center = [site_metrics["latitude"].mean(), site_metrics["longitude"].mean()]
+    fmap = folium.Map(location=center, zoom_start=12, tiles=None, control_scale=True, max_zoom=19)
 
-    is_dark = theme == "dark"
-
-    folium.TileLayer(
-        tiles="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-        attr="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors &copy; <a href='https://carto.com/attributions'>CARTO</a>",
-        name="Light",
-        subdomains="abcd",
-        max_zoom=20,
-        show=not is_dark,
-    ).add_to(fmap)
-
-    folium.TileLayer(
-        tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-        attr="&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors &copy; <a href='https://carto.com/attributions'>CARTO</a>",
-        name="Dark",
-        subdomains="abcd",
-        max_zoom=20,
-        show=is_dark,
-    ).add_to(fmap)
-
-    folium.TileLayer(
-        tiles="https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-        attr="&copy; OpenStreetMap contributors",
-        name="Streets",
-        max_zoom=19,
-        show=False,
-    ).add_to(fmap)
-
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Tiles &copy; Esri",
-        name="Satellite",
-        max_zoom=18,
-        show=False,
-    ).add_to(fmap)
+    default = "Dark" if theme == "dark" else "Light"
+    for name, url, attr, native_zoom in BASE_LAYERS:
+        folium.TileLayer(
+            tiles=url,
+            attr=attr,
+            name=name,
+            show=(name == default),
+            max_native_zoom=native_zoom,
+            max_zoom=19,
+        ).add_to(fmap)
 
     cluster = MarkerCluster(name="Sampling sites").add_to(fmap)
     for _, row in site_metrics.iterrows():
@@ -507,6 +497,7 @@ def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
     MiniMap(toggle_display=True).add_to(fmap)
     folium.LayerControl().add_to(fmap)
     return fmap
+
 
 # ----------------------------------------------------------------- report
 def build_report(
