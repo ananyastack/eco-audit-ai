@@ -1,12 +1,17 @@
 """
-Veridalis: biodiversity screening and spatial mapping tool.
+Veridalis: biodiversity data harmonization, quality control and screening tool.
 Exploratory and educational use only; not a regulatory instrument.
+
+Pipeline:  raw table -> Darwin Core column mapping -> quality checks
+           -> analysis-ready survey -> diversity indices, map and report.
 """
 
 from __future__ import annotations
 
+import csv
 import io
 import math
+import re
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Iterable
@@ -19,8 +24,16 @@ from folium.plugins import Fullscreen, MarkerCluster, MiniMap
 from streamlit_folium import st_folium
 
 APP_NAME = "Veridalis"
-REQUIRED_COLUMNS = ["site_id", "latitude", "longitude", "species", "abundance"]
-OPTIONAL_COLUMNS = ["site_name", "taxon", "habitat", "date", "notes"]
+MAX_ROWS = 200_000
+SURVEY_COLUMNS = [
+    "site_id", "site_name", "latitude", "longitude",
+    "species", "abundance", "taxon", "habitat", "date",
+]
+MUST_MAP = {
+    "species": "species / scientific name",
+    "latitude": "latitude",
+    "longitude": "longitude",
+}
 
 SAMPLE_CSV = (
     "site_id,site_name,latitude,longitude,species,abundance,taxon,habitat,date\n"
@@ -52,72 +65,252 @@ SAMPLE_CSV = (
 )
 
 
-# ----------------------------------------------------------- harmonization & qc
+# ------------------------------------------------------------ small helpers
+def _norm_header(name: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(name).strip().lower()).strip("_")
+
+
+def _blank_to_na(series: pd.Series) -> pd.Series:
+    """Strip text and turn empty / 'nan' / 'unknown'-style values into NA."""
+    text = series.astype("string").str.strip()
+    empty = text.str.lower().isin(["", "nan", "none", "na", "n/a", "null", "<na>", "unknown"])
+    return text.mask(empty)
+
+
+def _num(series: pd.Series) -> pd.Series:
+    """Convert to float; accepts decimal commas; anything unreadable becomes NaN."""
+    text = series.astype("string").str.strip().str.replace(",", ".", regex=False)
+    values = pd.to_numeric(text, errors="coerce")
+    return pd.Series(values.to_numpy(dtype="float64", na_value=np.nan), index=series.index)
+
+
+def _tidy_name(value: object) -> object:
+    """'SALMO TRUTTA' -> 'Salmo trutta' (only for plain two-part names)."""
+    if value is None or pd.isna(value):
+        return pd.NA
+    parts = " ".join(str(value).split()).split(" ")
+    if not parts or parts == [""]:
+        return pd.NA
+    parts[0] = parts[0].capitalize()
+    if len(parts) == 2:
+        parts[1] = parts[1].lower()
+    return " ".join(parts)
+
+
+# ------------------------------------------------------- reading the upload
+def read_uploaded_table(uploaded) -> pd.DataFrame:
+    """Read CSV / TSV / semicolon / pipe-delimited text, whatever the encoding."""
+    data = uploaded.getvalue()
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = data.decode("latin-1")
+    lines = [line for line in text.splitlines() if line.strip()]
+    if not lines:
+        raise ValueError("The file is empty.")
+    header = lines[0]
+    sep = max([",", "\t", ";", "|"], key=header.count)
+    if header.count(sep) == 0:
+        raise ValueError("Could not detect a column delimiter. Use comma, tab or semicolon separated text.")
+    return pd.read_csv(
+        io.StringIO(text),
+        sep=sep,
+        dtype=str,
+        nrows=MAX_ROWS,
+        on_bad_lines="skip",
+        quoting=csv.QUOTE_NONE if sep == "\t" else csv.QUOTE_MINIMAL,
+    )
+
+
+# ------------------------------------------------- Darwin Core harmonization
+# The target name is always listed first, so an exact match wins.
 DARWIN_CORE_TERMS = {
-    "site_id": ["site_id", "station", "station_id", "locality", "locationid", "site"],
+    "site_id": ["site_id", "station", "station_id", "locationid", "site"],
+    "site_name": ["site_name", "locality", "verbatimlocality", "location"],
     "species": ["species", "scientificname", "scientific_name", "taxon_name", "verbatimscientificname"],
-    "latitude": ["latitude", "decimallatitude", "lat", "decimal_latitude"],
-    "longitude": ["longitude", "decimallongitude", "lon", "lng", "decimal_longitude"],
-    "abundance": ["abundance", "individualcount", "count", "n", "organismquantity"],
-    "date": ["eventdate", "date", "year", "event_date"],
+    "latitude": ["latitude", "decimallatitude", "lat", "decimal_latitude", "latitude_dd"],
+    "longitude": ["longitude", "decimallongitude", "lon", "lng", "long", "decimal_longitude", "longitude_dd"],
+    "abundance": ["abundance", "individualcount", "count", "n", "individuals", "organismquantity"],
+    "date": ["date", "eventdate", "event_date", "observed_on"],
     "habitat": ["habitat", "verbatimhabitat"],
+    "taxon": ["taxon", "class"],
 }
 
 
-def map_to_darwin_core(df: pd.DataFrame) -> pd.DataFrame:
-    raw_cols = df.loc[:, ~df.columns.duplicated()].copy()
-    col_map = {str(c).strip().lower().replace(" ", "_"): c for c in raw_cols.columns}
-    rename_dict = {}
-    for target_term, candidates in DARWIN_CORE_TERMS.items():
+def map_to_darwin_core(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Rename recognised columns to the standard names. Returns (table, mapping)."""
+    table = df.loc[:, ~df.columns.duplicated()].copy()
+    lookup: dict[str, str] = {}
+    for column in table.columns:
+        lookup.setdefault(_norm_header(column), column)
+
+    rename: dict[str, str] = {}
+    mapping: dict[str, str] = {}
+    for target, candidates in DARWIN_CORE_TERMS.items():
         for candidate in candidates:
-            if candidate in col_map:
-                rename_dict[col_map[candidate]] = target_term
+            source = lookup.get(candidate)
+            if source is not None and source not in rename:
+                rename[source] = target
+                mapping[target] = source
                 break
-
-    standardized = raw_cols.rename(columns=rename_dict)
-    return standardized.loc[:, ~standardized.columns.duplicated()].copy()
+    return table.rename(columns=rename), mapping
 
 
-def flag_quality_issues(df: pd.DataFrame) -> pd.DataFrame:
-    audited = df.copy()
-    flags = []
-
-    for _, row in audited.iterrows():
-        row_flags = []
-        lat = pd.to_numeric(row.get("latitude"), errors="coerce")
-        lon = pd.to_numeric(row.get("longitude"), errors="coerce")
-
-        if pd.isna(lat) or pd.isna(lon):
-            row_flags.append("MISSING_COORDINATES")
-        else:
-            if lat == 0.0 and lon == 0.0:
-                row_flags.append("ZERO_COORDINATES")
-            if not (-90 <= lat <= 90):
-                row_flags.append("INVALID_LATITUDE")
-            if not (-180 <= lon <= 180):
-                row_flags.append("INVALID_LONGITUDE")
-
-        species_val = str(row.get("species", "")).strip()
-        if not species_val or species_val.lower() in ("nan", "none", "unknown"):
-            row_flags.append("MISSING_TAXON")
-
-        flags.append("; ".join(row_flags) if row_flags else "OK")
-
-    audited["quality_flag"] = flags
-    return audited
+# ----------------------------------------------------------- quality checks
+CRITICAL_FLAGS = [
+    "MISSING_TAXON",
+    "MISSING_COORDINATES",
+    "ZERO_COORDINATES",
+    "COORDINATES_OUT_OF_RANGE",
+    "SWAPPED_LAT_LON_SUSPECTED",
+    "NON_POSITIVE_COUNT",
+]
 
 
-def harmonization_report(df: pd.DataFrame) -> dict:
-    total = len(df)
-    clean = int((df["quality_flag"] == "OK").sum())
-    flagged = total - clean
-    usability = round((clean / total * 100), 2) if total > 0 else 0.0
+def run_quality_checks(df: pd.DataFrame, exclude_duplicates: bool = True) -> pd.DataFrame:
+    """Vectorised checks. Adds quality_flag, usable and count_assumed columns."""
+    out = df.copy()
+    idx = out.index
+
+    def column(name: str) -> pd.Series:
+        return out[name] if name in out.columns else pd.Series(pd.NA, index=idx, dtype="string")
+
+    species = _blank_to_na(column("species")).map(_tidy_name)
+    out["species"] = species
+
+    lat = _num(column("latitude"))
+    lon = _num(column("longitude"))
+    out["latitude"], out["longitude"] = lat, lon
+    missing_coords = lat.isna() | lon.isna()
+    zero_coords = (lat == 0) & (lon == 0)
+    swapped = (lat.abs() > 90) & (lon.abs() <= 90)
+    out_of_range = ((lat.abs() > 90) | (lon.abs() > 180)) & ~swapped
+
+    counts = _num(column("abundance"))
+    count_assumed = counts.isna()
+    non_positive = counts <= 0
+    out["abundance"] = counts.fillna(1.0)
+
+    if "date" in out.columns:
+        date_text = out["date"].astype("string").str.split("/").str[0].str.strip()
+        date_text = date_text.mask(date_text.str.lower().isin(["", "nan", "none", "<na>"]))
+        parsed = pd.to_datetime(date_text, errors="coerce", utc=True, format="mixed")
+        date_present = date_text.notna().astype(bool)
+    else:
+        parsed = pd.Series(pd.NaT, index=idx, dtype="datetime64[ns, UTC]")
+        date_present = pd.Series(False, index=idx)
+    out["date"] = parsed.dt.strftime("%Y-%m-%d")
+    missing_date = ~date_present
+    invalid_date = date_present & parsed.isna()
+    future_date = (parsed > pd.Timestamp.now(tz="UTC")).fillna(False)
+
+    key = pd.DataFrame(
+        {
+            "species": species.astype("object"),
+            "lat": lat.round(5),
+            "lon": lon.round(5),
+            "date": out["date"].astype("object"),
+            "count": out["abundance"],
+        }
+    )
+    duplicate = key.duplicated(keep="first") & ~(species.isna() | missing_coords)
+
+    issues = {
+        "MISSING_TAXON": species.isna(),
+        "MISSING_COORDINATES": missing_coords,
+        "ZERO_COORDINATES": zero_coords,
+        "COORDINATES_OUT_OF_RANGE": out_of_range,
+        "SWAPPED_LAT_LON_SUSPECTED": swapped,
+        "NON_POSITIVE_COUNT": non_positive,
+        "DUPLICATE_RECORD": duplicate,
+        "MISSING_DATE": missing_date,
+        "INVALID_DATE": invalid_date,
+        "FUTURE_DATE": future_date,
+    }
+
+    text = pd.Series("", index=idx, dtype="object")
+    for name, mask in issues.items():
+        flag_array = np.where(mask.fillna(False).to_numpy(dtype=bool), name + "; ", "")
+        text = text + pd.Series(flag_array, index=idx, dtype="object")
+    out["quality_flag"] = text.str.rstrip("; ").replace("", "OK")
+
+    critical = pd.concat([issues[name] for name in CRITICAL_FLAGS], axis=1).any(axis=1)
+    if exclude_duplicates:
+        critical = critical | duplicate
+    out["usable"] = ~critical
+    out["count_assumed"] = count_assumed
+    return out
+
+
+def build_audit_report(audited: pd.DataFrame, mapping: dict) -> dict:
+    total = len(audited)
+    usable = int(audited["usable"].sum())
+    flagged_rows = audited["quality_flag"] != "OK"
+    issue_counts = (
+        audited.loc[flagged_rows, "quality_flag"].str.split("; ").explode().value_counts().to_dict()
+    )
+    gbif_issues: dict = {}
+    if "issue" in audited.columns:
+        gbif_issues = (
+            audited["issue"].dropna().astype(str).str.split(";").explode().str.strip().value_counts().to_dict()
+        )
     return {
         "total_records": total,
-        "clean_records": clean,
-        "flagged_records": flagged,
-        "usability_pct": usability,
+        "usable_records": usable,
+        "excluded_records": total - usable,
+        "flagged_records": int(flagged_rows.sum()),
+        "passed_pct": round(usable / total * 100, 2) if total else 0.0,
+        "counts_defaulted": int(audited.loc[audited["usable"], "count_assumed"].sum()),
+        "issue_counts": issue_counts,
+        "gbif_issues": gbif_issues,
+        "mapping": mapping,
     }
+
+
+def prepare_survey(audited: pd.DataFrame, report: dict) -> pd.DataFrame:
+    """Turn usable records into the analysis table. Fills site ids and counts."""
+    use = audited[audited["usable"]].copy()
+    if use.empty:
+        top = ", ".join(f"{k} ({v})" for k, v in list(report["issue_counts"].items())[:4]) or "none recorded"
+        raise ValueError(f"No usable records remain after quality checks. Main issues: {top}.")
+
+    cell = "cell_" + use["latitude"].round(1).astype(str) + "_" + use["longitude"].round(1).astype(str)
+    empty = pd.Series(pd.NA, index=use.index, dtype="string")
+    site_id = _blank_to_na(use["site_id"]) if "site_id" in use.columns else empty
+    site_name = _blank_to_na(use["site_name"]) if "site_name" in use.columns else empty
+    site_id = site_id.fillna(site_name).fillna(cell)
+    site_name = site_name.fillna(site_id)
+
+    def optional(name: str) -> pd.Series:
+        if name in use.columns:
+            return _blank_to_na(use[name]).fillna("Unspecified")
+        return pd.Series("Unspecified", index=use.index)
+
+    survey = pd.DataFrame(
+        {
+            "site_id": site_id.astype(str),
+            "site_name": site_name.astype(str),
+            "latitude": use["latitude"],
+            "longitude": use["longitude"],
+            "species": use["species"].astype(str),
+            "abundance": use["abundance"],
+            "taxon": optional("taxon").astype(str),
+            "habitat": optional("habitat").astype(str),
+            "date": use["date"],
+        }
+    )
+    return survey[SURVEY_COLUMNS].reset_index(drop=True)
+
+
+def process_table(raw: pd.DataFrame, mapping_override: dict | None, exclude_duplicates: bool):
+    mapped, mapping = map_to_darwin_core(raw)
+    if mapping_override:
+        mapped = mapped.rename(columns={v: k for k, v in mapping_override.items()})
+        mapping = {**mapping, **mapping_override}
+    audited = run_quality_checks(mapped, exclude_duplicates)
+    report = build_audit_report(audited, mapping)
+    survey = prepare_survey(audited, report)
+    return survey, audited, report
 
 
 # ---------------------------------------------------------------- metrics
@@ -126,13 +319,16 @@ def _positive(counts: Iterable[float]) -> np.ndarray:
     return values[values > 0]
 
 
+def _clean_zero(value: float) -> float:
+    return 0.0 if abs(value) < 1e-9 else value
+
+
 def shannon_wiener(counts: Iterable[float]) -> float:
     values = _positive(counts)
     if values.size == 0:
         return 0.0
     p = values / values.sum()
-    val = float(-(p * np.log(p)).sum())
-    return 0.0 if abs(val) < 1e-9 else val
+    return _clean_zero(float(-(p * np.log(p)).sum()))
 
 
 def simpson_diversity(counts: Iterable[float]) -> float:
@@ -140,22 +336,19 @@ def simpson_diversity(counts: Iterable[float]) -> float:
     if values.size == 0:
         return 0.0
     p = values / values.sum()
-    val = float(1.0 - np.square(p).sum())
-    return 0.0 if abs(val) < 1e-9 else val
+    return _clean_zero(float(1.0 - np.square(p).sum()))
 
 
 def pielou_evenness(h_index: float, richness: int) -> float:
     if richness <= 1:
         return 0.0
-    val = float(h_index / math.log(richness))
-    return 0.0 if abs(val) < 1e-9 else val
+    return _clean_zero(float(h_index / math.log(richness)))
 
 
 def margalef_index(richness: int, individuals: float) -> float:
     if individuals <= 1:
         return 0.0
-    val = float((richness - 1) / math.log(individuals))
-    return 0.0 if abs(val) < 1e-9 else val
+    return _clean_zero(float((richness - 1) / math.log(individuals)))
 
 
 def classify_shannon(h_index: float) -> tuple[str, str]:
@@ -172,104 +365,8 @@ def site_label(row: pd.Series) -> str:
     name = str(row.get("site_name") or "").strip()
     site_id = str(row.get("site_id") or "").strip()
     if name and name.lower() != "nan":
-        return f"{site_id} — {name}" if site_id else name
+        return f"{site_id} — {name}" if site_id and site_id != name else name
     return site_id or "Unnamed site"
-
-
-# ------------------------------------------------------------------- data
-def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.loc[:, ~df.columns.duplicated()].copy()
-    out.columns = [str(c).strip().lower().replace(" ", "_") for c in out.columns]
-
-    aliases = {
-        "lat": "latitude",
-        "lon": "longitude",
-        "lng": "longitude",
-        "long": "longitude",
-        "decimallatitude": "latitude",
-        "decimallongitude": "longitude",
-        "site": "site_id",
-        "station": "site_id",
-        "station_id": "site_id",
-        "count": "abundance",
-        "n": "abundance",
-        "individuals": "abundance",
-        "individualcount": "abundance",
-        "taxon_name": "species",
-        "scientific_name": "species",
-        "scientificname": "species",
-    }
-    renamed = out.rename(columns={k: v for k, v in aliases.items() if k in out.columns})
-    return renamed.loc[:, ~renamed.columns.duplicated()].copy()
-
-
-def validate_survey(df: pd.DataFrame) -> pd.DataFrame:
-    clean = df.loc[:, ~df.columns.duplicated()].copy()
-
-    missing = [c for c in REQUIRED_COLUMNS if c not in clean.columns]
-    if missing:
-        raise ValueError(
-            "CSV is missing required columns: "
-            + ", ".join(missing)
-            + ". Expected at least: "
-            + ", ".join(REQUIRED_COLUMNS)
-        )
-
-    clean["site_id"] = clean["site_id"].astype(str).str.strip()
-    clean["species"] = clean["species"].astype(str).str.strip()
-    for col in ("latitude", "longitude", "abundance"):
-        clean[col] = pd.to_numeric(clean[col], errors="coerce")
-
-    clean = clean.dropna(subset=REQUIRED_COLUMNS)
-    clean = clean[clean["abundance"] > 0]
-    clean = clean[clean["latitude"].between(-90, 90) & clean["longitude"].between(-180, 180)]
-    if clean.empty:
-        raise ValueError("No valid survey rows remain after cleaning coordinates and abundance.")
-
-    if "site_name" not in clean.columns:
-        clean["site_name"] = clean["site_id"]
-    if "habitat" not in clean.columns:
-        clean["habitat"] = "Unspecified"
-    if "taxon" not in clean.columns:
-        clean["taxon"] = "Unspecified"
-
-    clean["site_name"] = clean["site_name"].fillna(clean["site_id"]).astype(str)
-    clean["habitat"] = clean["habitat"].fillna("Unspecified").astype(str)
-    return clean.reset_index(drop=True)
-
-
-def load_survey(uploaded) -> tuple[pd.DataFrame, dict | None]:
-    if uploaded is None:
-        raw = pd.read_csv(io.StringIO(SAMPLE_CSV))
-        return validate_survey(normalize_columns(raw)), None
-
-    content = uploaded.getvalue().decode("utf-8", errors="ignore")
-    
-    # Delimiter sniffer: handles standard commas, tabs, and semicolon formats automatically
-    try:
-        raw = pd.read_csv(io.StringIO(content), sep=None, engine="python", low_memory=False)
-    except Exception:
-        sep = "\t" if "\t" in content.splitlines()[0] else ","
-        raw = pd.read_csv(io.StringIO(content), sep=sep, low_memory=False)
-
-    raw = raw.loc[:, ~raw.columns.duplicated()].copy()
-
-    standardized = map_to_darwin_core(raw)
-    audited = flag_quality_issues(standardized)
-    report = harmonization_report(audited)
-
-    clean_df = audited[audited["quality_flag"] == "OK"].copy()
-
-    if "site_id" not in clean_df.columns:
-        if "locality" in clean_df.columns:
-            clean_df["site_id"] = clean_df["locality"].fillna("GBIF-Site")
-        else:
-            clean_df["site_id"] = "GBIF-Site-01"
-
-    if "abundance" not in clean_df.columns:
-        clean_df["abundance"] = 1
-
-    return validate_survey(normalize_columns(clean_df)), report
 
 
 def compute_site_metrics(df: pd.DataFrame) -> pd.DataFrame:
@@ -319,7 +416,7 @@ def compute_global_metrics(df: pd.DataFrame) -> dict:
     }
 
 
-def compliance_flags(site_metrics: pd.DataFrame, shannon_threshold: float, richness_threshold: int) -> pd.DataFrame:
+def screening_flags(site_metrics: pd.DataFrame, shannon_threshold: float, richness_threshold: int) -> pd.DataFrame:
     flagged = site_metrics.copy()
     flagged["flag"] = np.where(
         (flagged["shannon"] < shannon_threshold) | (flagged["richness"] < richness_threshold),
@@ -345,17 +442,21 @@ def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
     center = [site_metrics["latitude"].mean(), site_metrics["longitude"].mean()]
     fmap = folium.Map(location=center, zoom_start=12, tiles=None, control_scale=True)
 
-    layers = [("CartoDB positron", "Light"), ("CartoDB dark_matter", "Dark")]
-    if theme == "dark":
-        layers.reverse()
-    for tiles, name in layers:
-        folium.TileLayer(tiles, name=name).add_to(fmap)
-    folium.TileLayer("OpenStreetMap", name="Streets").add_to(fmap)
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Esri",
-        name="Satellite",
-    ).add_to(fmap)
+    carto = "https://{s}.basemaps.cartocdn.com/%s/{z}/{x}/{y}{r}.png"
+    carto_attr = "© OpenStreetMap contributors © CARTO"
+    default = "Dark" if theme == "dark" else "Light"
+    base_layers = [
+        ("Light", carto % "light_all", carto_attr),
+        ("Dark", carto % "dark_all", carto_attr),
+        ("Streets", "https://tile.openstreetmap.org/{z}/{x}/{y}.png", "© OpenStreetMap contributors"),
+        (
+            "Satellite",
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            "Esri",
+        ),
+    ]
+    for name, url, attr in base_layers:
+        folium.TileLayer(tiles=url, attr=attr, name=name, show=(name == default)).add_to(fmap)
 
     cluster = MarkerCluster(name="Sampling sites").add_to(fmap)
     for _, row in site_metrics.iterrows():
@@ -398,6 +499,7 @@ def build_report(
     auditor: str,
     shannon_threshold: float,
     richness_threshold: int,
+    audit: dict | None = None,
 ) -> str:
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     review_sites = flags[flags["flag"] == "Review suggested"]
@@ -413,6 +515,18 @@ def build_report(
         else "None."
     )
 
+    quality = ""
+    if audit:
+        issues = "\n".join(f"  {name}: {n}" for name, n in audit["issue_counts"].items()) or "  none"
+        quality = (
+            "DATA QUALITY (automated checks)\n"
+            f"Records read: {audit['total_records']}\n"
+            f"Records used in analysis: {audit['usable_records']}\n"
+            f"Records excluded: {audit['excluded_records']}\n"
+            f"Records with no count (treated as presence, n = 1): {audit['counts_defaulted']}\n"
+            f"Flags raised:\n{issues}\n\n"
+        )
+
     return (
         f"{APP_NAME.upper()} - BIODIVERSITY SCREENING REPORT\n"
         "================================================\n"
@@ -424,6 +538,7 @@ def build_report(
         "This screening report summarises biodiversity sampling records and mapped\n"
         "sampling locations using Shannon-Wiener diversity (H'), Simpson diversity\n"
         "(1-D), Pielou evenness (J') and Margalef richness.\n\n"
+        f"{quality}"
         "2. DATA SUMMARY\n"
         f"Sampling sites: {global_metrics['sites']}\n"
         f"Survey records: {global_metrics['records']}\n"
@@ -448,6 +563,8 @@ def build_report(
         "- H' cannot exceed ln(S), so sites with few species score low regardless of habitat quality.\n"
         "- Taxa are pooled; abundance units across groups are not comparable.\n"
         "- Indices are not standardised for sampling effort.\n"
+        "- Occurrence records without counts are treated as presence (n = 1); indices\n"
+        "  computed from them reflect recording effort as much as diversity.\n"
         "- A flag means only that a site fell below the thresholds set.\n\n"
         "8. SUGGESTED NEXT STEPS\n"
         "- Consider revisiting flagged sites in the appropriate survey season.\n"
@@ -457,7 +574,87 @@ def build_report(
     )
 
 
-# ------------------------------------------------------------------- main
+# --------------------------------------------------------------------- UI
+def to_csv_bytes(df: pd.DataFrame) -> bytes:
+    return df.to_csv(index=False).encode("utf-8")
+
+
+def ask_for_missing_columns(mapped: pd.DataFrame, mapping: dict) -> dict:
+    """If key columns were not recognised, let the user pick them. Returns overrides."""
+    missing = [key for key in MUST_MAP if key not in mapped.columns]
+    if not missing:
+        return {}
+    st.warning(
+        "Veridalis could not recognise these columns automatically: "
+        + ", ".join(MUST_MAP[key] for key in missing)
+        + ". Please choose them from your file."
+    )
+    options = ["(choose)"] + list(mapped.columns)
+    picks = {
+        key: st.selectbox(f"Which column holds {MUST_MAP[key]}?", options, key=f"map_{key}")
+        for key in missing
+    }
+    if any(value == "(choose)" for value in picks.values()):
+        st.stop()
+    if len(set(picks.values())) < len(picks):
+        st.error("Each field needs a different column.")
+        st.stop()
+    return picks
+
+
+def render_audit(report: dict, audited: pd.DataFrame, survey: pd.DataFrame) -> None:
+    st.subheader("Data harmonization and quality audit")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Records read", report["total_records"])
+    c2.metric("Records with flags", report["flagged_records"])
+    c3.metric("Passed critical checks", report["usable_records"])
+    c4.metric("Records analysed", len(survey))
+    c5.metric("Passed (%)", f"{report['passed_pct']}%")
+    st.caption(
+        "“Passed” means a record has a taxon name, valid coordinates and a positive count. "
+        "It does not mean the record is ecologically correct. "
+        f"{report['counts_defaulted']} analysed records had no count and were treated as presence (n = 1)."
+    )
+
+    with st.expander("What was flagged"):
+        if report["issue_counts"]:
+            table = pd.DataFrame(
+                {"flag": list(report["issue_counts"]), "records": list(report["issue_counts"].values())}
+            )
+            st.dataframe(table, hide_index=True, width="stretch")
+        else:
+            st.write("No flags raised.")
+        if report["gbif_issues"]:
+            st.markdown("**Issues reported by GBIF itself (for reference)**")
+            gbif = pd.DataFrame(
+                {"gbif_issue": list(report["gbif_issues"]), "records": list(report["gbif_issues"].values())}
+            )
+            st.dataframe(gbif, hide_index=True, width="stretch")
+
+    with st.expander("Column mapping used"):
+        mapping = pd.DataFrame({"standard name": list(report["mapping"]), "your column": list(report["mapping"].values())})
+        st.dataframe(mapping, hide_index=True, width="stretch")
+
+    flagged = audited[audited["quality_flag"] != "OK"]
+    d1, d2 = st.columns(2)
+    d1.download_button(
+        "Download cleaned analysis table (.csv)",
+        data=to_csv_bytes(survey),
+        file_name="veridalis_cleaned_survey.csv",
+        mime="text/csv",
+        width="stretch",
+    )
+    d2.download_button(
+        "Download flagged records (.csv)",
+        data=to_csv_bytes(flagged),
+        file_name="veridalis_flagged_records.csv",
+        mime="text/csv",
+        width="stretch",
+        disabled=flagged.empty,
+    )
+    st.divider()
+
+
 def main() -> None:
     st.set_page_config(page_title=APP_NAME, page_icon="🌿", layout="wide")
     theme = viewer_theme()
@@ -466,7 +663,7 @@ def main() -> None:
         f"""
         <div style="padding: 1.15rem 1.4rem; border: 1px solid rgba(128,128,128,0.35); background: rgba(128,128,128,0.08); border-radius: 18px; margin-bottom: 0.8rem; margin-top: 1rem;">
           <h1 style="margin: 0; font-family: Georgia, serif;">{APP_NAME}</h1>
-          <p style="margin: 0.35rem 0 0 0; opacity: 0.85;">Biodiversity screening and spatial mapping for field surveys and exploratory habitat review.</p>
+          <p style="margin: 0.35rem 0 0 0; opacity: 0.85;">Biodiversity data harmonization, quality control and screening for field surveys and occurrence records.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -474,13 +671,15 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Survey data")
-        uploaded = st.file_uploader("Upload sampling CSV", type=["csv", "txt", "tsv"])
+        uploaded = st.file_uploader("Upload a survey or occurrence file", type=["csv", "txt", "tsv"])
         st.caption(
-            "Required columns: site_id, latitude, longitude, species, abundance. "
-            "Optional: site_name, taxon, habitat, date, notes."
+            "Comma, tab or semicolon separated. Needed: species, latitude, longitude. "
+            "Optional: site_id, abundance/count, site name, date, habitat, taxon. "
+            "Common names (for example decimalLatitude, scientificName, individualCount) are recognised. "
+            "If a GBIF download is zipped, unzip it first."
         )
         if uploaded is None:
-            st.info("Showing built-in synthetic demonstration survey. Upload a CSV to use your own data.")
+            st.info("Showing the built-in synthetic demonstration survey. Upload a file to use your own data.")
         st.download_button(
             "Download CSV template",
             data=SAMPLE_CSV,
@@ -493,25 +692,44 @@ def main() -> None:
         auditor = st.text_input("Auditor / organisation")
         shannon_threshold = st.slider("Shannon–Wiener review threshold (H′)", 0.5, 3.5, 2.0, 0.1)
         richness_threshold = st.slider("Minimum species richness (S)", 1, 20, 4)
+        exclude_duplicates = st.checkbox(
+            "Exclude exact duplicate records",
+            value=True,
+            help="Same species, location, date and count. Untick if repeated rows are real observations.",
+        )
 
     try:
-        survey, audit_report = load_survey(uploaded)
+        if uploaded is None:
+            raw = pd.read_csv(io.StringIO(SAMPLE_CSV), dtype=str)
+        else:
+            raw = read_uploaded_table(uploaded)
     except Exception as exc:
-        st.error(f"Could not read the survey file: {exc}")
+        st.error(f"Could not read the file: {exc}")
+        st.stop()
+    if len(raw) >= MAX_ROWS:
+        st.warning(f"Only the first {MAX_ROWS:,} rows were read.")
+
+    mapped_preview, auto_mapping = map_to_darwin_core(raw)
+    overrides = ask_for_missing_columns(mapped_preview, auto_mapping)
+
+    try:
+        survey, audited, audit_report = process_table(raw, overrides, exclude_duplicates)
+    except Exception as exc:
+        st.error(f"Could not process the data: {exc}")
         st.stop()
 
-    if audit_report:
-        st.subheader("Data Harmonization & Darwin Core QC Audit")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Raw Ingested Records", audit_report["total_records"])
-        c2.metric("Flagged / Erroneous", audit_report["flagged_records"])
-        c3.metric("Clean Curated Records", audit_report["clean_records"])
-        c4.metric("Usability Score", f"{audit_report['usability_pct']}%")
-        st.divider()
+    if uploaded is not None:
+        render_audit(audit_report, audited, survey)
 
     site_metrics = compute_site_metrics(survey)
     global_metrics = compute_global_metrics(survey)
-    flags = compliance_flags(site_metrics, shannon_threshold, richness_threshold)
+    flags = screening_flags(site_metrics, shannon_threshold, richness_threshold)
+
+    if global_metrics["richness"] <= 1:
+        st.info(
+            "This dataset contains a single species, so diversity indices are not meaningful "
+            "(H′ is 0 by definition). Upload a multi-species dataset to compare sites."
+        )
 
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Sites", global_metrics["sites"])
@@ -528,25 +746,11 @@ def main() -> None:
     st.subheader("Sampling site map")
     st_folium(build_map(site_metrics, theme), height=520, use_container_width=True, returned_objects=[], key="site_map")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
     st.subheader("Site biodiversity metrics")
     st.dataframe(
-        flags[
-            [
-                "site_id",
-                "site_name",
-                "habitat",
-                "richness",
-                "shannon",
-                "simpson",
-                "evenness",
-                "status",
-                "flag",
-            ]
-        ],
+        flags[["site_id", "site_name", "habitat", "richness", "shannon", "simpson", "evenness", "status", "flag"]],
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
     )
 
     st.subheader("Species records")
@@ -556,7 +760,7 @@ def main() -> None:
         default=[],
     )
     visible = survey if not habitat_filter else survey[survey["habitat"].isin(habitat_filter)]
-    st.dataframe(visible, hide_index=True, height=280, use_container_width=True)
+    st.dataframe(visible, hide_index=True, height=280, width="stretch")
 
     st.subheader("Screening report")
     st.caption("Generated from the current metrics and thresholds. Not a legal determination.")
@@ -570,23 +774,22 @@ def main() -> None:
             auditor,
             shannon_threshold,
             richness_threshold,
+            audit_report if uploaded is not None else None,
         )
 
     if "screening_report" in st.session_state:
         st.text_area("Report preview", st.session_state["screening_report"], height=420)
-
         st.download_button(
             "Download report (.txt)",
             data=st.session_state["screening_report"],
             file_name=f"veridalis_report_{datetime.now().strftime('%Y%m%d')}.txt",
             mime="text/plain",
-            use_container_width=True,
+            width="stretch",
         )
 
         subject = urllib.parse.quote("Veridalis Biodiversity Screening Report")
         body = urllib.parse.quote(st.session_state["screening_report"])
         gmail_url = f"https://mail.google.com/mail/?view=cm&fs=1&su={subject}&body={body}"
-
         st.markdown(
             f'<a href="{gmail_url}" target="_blank"><button style="width:100%; background-color:#262730; color:white; border:1px solid rgba(250,250,250,0.2); padding:0.6rem 1rem; border-radius:0.5rem; cursor:pointer; font-weight:500; font-size:1rem; margin-top:0.5rem;">Send an Email (via Gmail)</button></a>',
             unsafe_allow_html=True,
