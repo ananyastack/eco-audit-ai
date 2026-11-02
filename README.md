@@ -1,6 +1,12 @@
 # Veridalis
 
 **A free, open-source tool for automated Darwin Core harmonization, quality control, and biodiversity screening of field survey data.**
+### Live Demonstration & Walkthrough
+
+[![Veridalis Video Walkthrough](https://img.youtube.com/vi/pPBQ-fytl7c/maxresdefault.jpg)](https://youtu.be/pPBQ-fytl7c)
+
+> Watch the complete end-to-end walkthrough on [YouTube](https://youtu.be/pPBQ-fytl7c) showing automated Darwin Core harmonization, single-species boundary trapping ($S=1$), and spatial grid binning across Slovenian and Polish occurrence exports.
+
 
 [Live app](https://eco-audit-ai-avci9d7appmnzeehkhfppwf.streamlit.app) · [MIT License](LICENSE)
 
