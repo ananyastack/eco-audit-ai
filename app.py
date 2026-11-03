@@ -497,25 +497,33 @@ def marker_color(status: str) -> str:
     return {"High": "green", "Moderate": "orange", "Low": "red", "Very low": "darkred"}.get(status, "blue")
 
 
+# 100% free tiles that do not require an API key
+ESRI_REST = "https://server.arcgisonline.com/ArcGIS/rest/services"
+ESRI_ATTR = "Tiles © Esri — Source: Esri, DeLorme, USGS, NPS"
+OSM_ATTR = "© OpenStreetMap contributors"
+
+BASE_LAYERS = [
+    ("Light", f"{ESRI_REST}/Canvas/World_Light_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_ATTR, 16),
+    ("Dark", f"{ESRI_REST}/Canvas/World_Dark_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_ATTR, 16),
+    ("Streets", "https://tile.openstreetmap.org/{z}/{x}/{y}.png", OSM_ATTR, 19),
+    ("Satellite", f"{ESRI_REST}/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}", "Tiles © Esri", 19),
+]
+
+
 def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
     center = [site_metrics["latitude"].mean(), site_metrics["longitude"].mean()]
-    fmap = folium.Map(location=center, zoom_start=12, tiles=None, control_scale=True)
+    fmap = folium.Map(location=center, zoom_start=12, tiles=None, control_scale=True, max_zoom=19)
 
-    carto = "https://{s}.basemaps.cartocdn.com/%s/{z}/{x}/{y}{r}.png"
-    carto_attr = "© OpenStreetMap contributors © CARTO"
     default = "Dark" if theme == "dark" else "Light"
-    base_layers = [
-        ("Light", carto % "light_all", carto_attr),
-        ("Dark", carto % "dark_all", carto_attr),
-        ("Streets", "https://tile.openstreetmap.org/{z}/{x}/{y}.png", "© OpenStreetMap contributors"),
-        (
-            "Satellite",
-            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-            "Esri",
-        ),
-    ]
-    for name, url, attr in base_layers:
-        folium.TileLayer(tiles=url, attr=attr, name=name, show=(name == default)).add_to(fmap)
+    for name, url, attr, native_zoom in BASE_LAYERS:
+        folium.TileLayer(
+            tiles=url,
+            attr=attr,
+            name=name,
+            show=(name == default),
+            max_native_zoom=native_zoom,
+            max_zoom=19,
+        ).add_to(fmap)
 
     cluster = MarkerCluster(name="Sampling sites").add_to(fmap)
     for _, row in site_metrics.iterrows():
