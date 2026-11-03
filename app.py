@@ -26,8 +26,8 @@ import folium
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from folium.plugins import Fullscreen, MarkerCluster, MiniMap
-from streamlit_folium import st_folium
 
 APP_NAME = "Veridalis"
 MAX_ROWS = 200_000
@@ -925,7 +925,8 @@ def main() -> None:
     )
 
     st.subheader("Sampling site map")
-    st_folium(build_map(site_metrics, theme), height=520, use_container_width=True, returned_objects=[], key="site_map")
+    fmap = build_map(site_metrics, theme)
+    components.html(fmap.get_root().render(), height=540)
 
     st.subheader("Site biodiversity metrics")
     st.caption(criteria_rule)
