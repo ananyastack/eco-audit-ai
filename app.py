@@ -1,16 +1,3 @@
-Claude
-
-
-
-
-
-
-
-
-
-
-
-App v2 · PY
 """
 Veridalis: biodiversity data harmonization, quality control and screening tool.
 Exploratory and educational use only; not a regulatory instrument.
