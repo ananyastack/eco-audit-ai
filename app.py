@@ -684,12 +684,10 @@ def build_workbook(
     audit: dict | None,
     audited: pd.DataFrame | None,
 ) -> bytes | None:
-   try:
-        import openpyxl
+try:
+        import openpyxl  # noqa: F401
     except ImportError:
-        import subprocess, sys
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
-        import openpyxl
+        return None
     summary = pd.DataFrame(
         {"metric": list(global_metrics), "value": [global_metrics[k] for k in global_metrics]}
     )
