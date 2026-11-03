@@ -684,11 +684,12 @@ def build_workbook(
     audit: dict | None,
     audited: pd.DataFrame | None,
 ) -> bytes | None:
-    """Excel workbook with one sheet per table. Returns None if openpyxl is not installed."""
-    try:
-        import openpyxl  # noqa: F401
+   try:
+        import openpyxl
     except ImportError:
-        return None
+        import subprocess, sys
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
+        import openpyxl
     summary = pd.DataFrame(
         {"metric": list(global_metrics), "value": [global_metrics[k] for k in global_metrics]}
     )
