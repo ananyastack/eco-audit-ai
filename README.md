@@ -167,15 +167,12 @@ Veridalis does not save uploaded files; they stay in memory for your session. Th
 - Per-taxon analysis
 - Taxonomic name reconciliation through the GBIF API
 
-## AI assistance
-
-AI coding assistants were used during development. The author tested the app on the datasets listed above and checked its outputs, including a hand calculation for the Polish file.
 
 ## Citation
 
 If you use this software, please cite it using [`CITATION.cff`](CITATION.cff):
 
-> Samadder, A. (2026). *Veridalis: biodiversity data harmonization, quality control and screening* (version 0.1.0) [Software]. https://github.com/ananyastack/eco-audit-ai
+> Samadder, A. (2026). *Veridalis: biodiversity data harmonization, quality checking and screening* (version 0.1.0) [Software]. https://github.com/ananyastack/eco-audit-ai
 
 ## License
 
