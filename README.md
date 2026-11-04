@@ -1,128 +1,182 @@
 # Veridalis
 
-Open-source exploratory tool for harmonizing biodiversity occurrence data to Darwin Core, checking data quality, and screening assemblages with standard community diversity indices.
+Open-source web app for harmonizing biodiversity occurrence data, checking its quality, and screening it with standard diversity indices.
 
-[Live app](https://eco-audit-ai-avci9d7appmnzeehkhfppwf.streamlit.app) · [Video walkthrough](https://youtu.be/pPBQ-fytl7c) · [MIT License](LICENSE) · [Citation](#citation)[cite: 1]
+[Live app](https://eco-audit-ai-avci9d7appmnzeehkhfppwf.streamlit.app) · [Video walkthrough](https://youtu.be/pPBQ-fytl7c) · [MIT License](LICENSE) · [Citation](#citation)
 
-[![Veridalis video walkthrough](https://img.youtube.com/vi/pPBQ-fytl7c/maxresdefault.jpg)](https://youtu.be/pPBQ-fytl7c)[cite: 1]
+[![Veridalis video walkthrough](https://img.youtube.com/vi/pPBQ-fytl7c/maxresdefault.jpg)](https://youtu.be/pPBQ-fytl7c)
 
-Veridalis reads field survey tables and GBIF occurrence downloads, maps their columns to Darwin Core terms, runs quality checks, and reports richness, Shannon, Simpson, Pielou, and Margalef indices per site and for the whole dataset, alongside an interactive spatial preview. It is designed as an initial data hygiene and exploratory screening step for students, researchers, and field teams before undertaking formal statistical modeling.
+Veridalis reads field survey tables and GBIF occurrence downloads, maps their columns to standard names (Darwin Core terms where they exist), runs quality checks, and reports richness, Shannon, Simpson, Pielou and Margalef indices per site and for the whole dataset, with an interactive map and downloadable tables. It is meant for students, researchers and field teams who want a quick, transparent look at a file before any further analysis.
 
-> **Version 0.1.0 (Exploratory research software).** Veridalis is a first-pass data hygiene and screening tool[cite: 1]. It does not perform statutory ecological impact assessments, validate species taxonomy, or replace comprehensive community distribution modeling[cite: 1]. Review [Scope & Operational Realities](#scope--operational-realities) before interpreting any output.
+> **Version 0.1.0. Exploratory research software; not a validated tool.** It does not replace expert ecological judgement, statutory environmental assessments or protected-species surveys. Read [Limitations](#limitations) and [Known issues](#known-issues) before interpreting any output.
 
 The repository is named `eco-audit-ai`; the software is called Veridalis.
 
----
-
 ## Features
 
-- **Flexible Ingestion:** Reads comma-, tab-, semicolon-, and pipe-delimited text files (`.csv`, `.tsv`, `.txt`), including GBIF occurrence exports, and handles decimal commas. If columns are not detected automatically, an interactive manual mapping interface is provided. Zipped GBIF downloads must be unzipped prior to upload.
-- **Darwin Core Harmonization:** Maps recognized columns to standard Darwin Core terms (`scientificName`, `decimalLatitude`, `decimalLongitude`, `individualCount`, `locality`, etc.) and displays the active column mapping.
-- **Data Quality Audits:**
-  - *Excluded from analysis:* Records missing taxon names, missing or zero coordinates `(0, 0)`, coordinates outside valid geographic ranges, and exact duplicates (configurable in the sidebar).
-  - *Flagged:* Suspected swapped latitude and longitude.
-  - *Warning only (retained):* Missing sampling dates.
-  - *External audit flags:* For GBIF exports, GBIF's internal issue tags are parsed and summarized separately for reference.
-- **Community Diversity Indices:** Species richness ($S$), total abundance ($N$), Shannon–Wiener ($H'$), Gini–Simpson ($1 - D$), Pielou evenness ($J'$), and Margalef richness, calculated per site and dataset-wide.
-- **Fallback Spatial Aggregation:** Records lacking a site identifier or locality name are aggregated into $0.1^\circ$ grid cells named `cell_<lat>_<lon>`.
-- **Habitat Summary:** Summarizes unique species counts, total occurrence records, and sampling site representation across distinct habitat classes[cite: 1].
-- **Interactive Mapping:** Spatial visualization with marker clustering, status-based coloration, and free basemap tile layers (Esri Light Gray, Esri Dark Gray, OpenStreetMap, and Esri World Imagery) that require no API keys[cite: 1].
-- **Dual-Mode Screening & Multi-Format Exports:**
-  - Screen sites using absolute cut-offs (e.g., $H' < 2.00$ or $S < 4$) or relative percentiles (e.g., lower quartile $Q1$ of the dataset's $H'$ distribution)[cite: 1].
-  - Downloadable cleaned analysis tables (CSV) and flagged records (CSV)[cite: 1].
-  - Downloadable Markdown screening audit report (`.md`) and direct email draft creation via Gmail[cite: 1].
-  - Multi-tab Excel audit workbook (`.xlsx`) generated via `openpyxl`, organizing dataset summaries, site metrics, screening flags, habitat summaries, and cleaned records[cite: 1].
-- **Single-Species Guard:** Detects datasets or assemblages with only one recorded species ($S = 1$) and displays an explicit notice that diversity indices cannot evaluate community variation[cite: 1].
-- **Ephemeral Session Security:** Uploaded tables are processed purely in temporary session memory and are never written to disk or an external database[cite: 1].
-- **CSV Template:** Downloadable standard template available directly from the sidebar[cite: 1].
+- **Flexible reading.** Comma-, tab-, semicolon- and pipe-separated text files (`.csv`, `.tsv`, `.txt`), UTF-8 or Latin-1, decimal commas, up to 200,000 rows. Zipped GBIF downloads must be unzipped first.
+- **Column recognition.** Recognises common names such as `scientificName`, `decimalLatitude`, `decimalLongitude`, `individualCount` and `locality`, and shows the mapping it used. If a required column is not recognised, you choose it from a list.
+- **Quality checks.**
+  - *Excluded from analysis:* records with no taxon name, missing or unreadable coordinates, coordinates at exactly (0, 0), coordinates out of range, suspected swapped latitude and longitude, non-positive counts, and exact duplicate records (duplicate exclusion can be switched off in the sidebar).
+  - *Warning only, record kept:* missing, unreadable or future dates.
+  - For GBIF files, GBIF's own issue flags are listed separately for reference. They are not used to exclude records.
+- **Diversity indices** per site and for the whole dataset: species richness (S), individuals (N), Shannon-Wiener H′ (natural log), Simpson 1 − D, Pielou J′ and Margalef richness.
+- **Sites.** Site identifiers and names are used exactly as written. Records with neither a site identifier nor a site name are grouped into 0.1° grid cells named `cell_<lat>_<lon>`.
+- **Unique species per habitat.** A table of unique species, records and sites for each habitat.
+- **Screening.** Sites can be flagged for review with absolute thresholds (H′ and S) or relative to the dataset (lowest-H′ sites). The High / Moderate / Low class bands are adjustable. The rule in use is shown above the table and in the report.
+- **Map.** Interactive map with markers coloured by diversity class, clustered markers and switchable basemaps.
+- **Outputs.** Cleaned analysis table, flagged records and site metrics (CSV); a screening report with tables (Markdown, previewed in the app); an Excel workbook with one sheet per table (needs `openpyxl`); a Gmail draft button.
+- **Single-species warning.** If a file contains one species, the app states that the diversity indices are not meaningful.
 
----
+## Input
 
-## Input Formats
+Header matching ignores case and punctuation. Only species, latitude and longitude are required.
 
-Veridalis accepts delimited text files (`.csv`, `.tsv`, `.txt`)[cite: 1]. Only three columns are strictly required[cite: 1]:
-
-| Target Field | Required | Description & Accepted Aliases |
+| Field | Required | Recognised names |
 |---|---|---|
-| `species` | Yes | Taxon binomial or scientific name (`scientificName`, `scientific_name`, `taxon_name`)[cite: 1] |
-| `latitude` | Yes | Decimal latitude in WGS84, −90 to 90 (`lat`, `decimalLatitude`, `latitude_dd`)[cite: 1] |
-| `longitude` | Yes | Decimal longitude in WGS84, −180 to 180 (`lon`, `lng`, `decimalLongitude`, `longitude_dd`)[cite: 1] |
-| `abundance` | No | Count of individuals (`individualCount`, `count`, `n`). Unrecorded or non-numeric counts default to presence ($n = 1$)[cite: 1] |
-| `site_id` | No | Unique sampling site or station code (`station`, `site`). If absent, $0.1^\circ$ grid cells are assigned[cite: 1] |
-| `site_name` | No | Verbatim locality description (`locality`, `verbatimLocality`)[cite: 1] |
-| `taxon` | No | Higher taxonomic rank or group (e.g., Fish, Plant, Insect)[cite: 1] |
-| `habitat` | No | Habitat or vegetation type (`verbatimHabitat`)[cite: 1] |
-| `date` | No | Observation or collection date (`eventDate`, `observed_on`)[cite: 1] |
+| `species` | Yes | `species`, `scientificName`, `scientific_name`, `taxon_name`, `verbatimScientificName` |
+| `latitude` | Yes | `latitude`, `decimalLatitude`, `lat`, `decimal_latitude`, `latitude_dd` |
+| `longitude` | Yes | `longitude`, `decimalLongitude`, `lon`, `lng`, `long`, `decimal_longitude`, `longitude_dd` |
+| `abundance` | No | `abundance`, `individualCount`, `count`, `n`, `individuals`, `organismQuantity` |
+| `site_id` | No | `site_id`, `station`, `station_id`, `locationID`, `site` |
+| `site_name` | No | `site_name`, `locality`, `verbatimLocality`, `location` |
+| `date` | No | `date`, `eventDate`, `event_date`, `observed_on` |
+| `habitat` | No | `habitat`, `verbatimHabitat` |
+| `taxon` | No | `taxon`, `class` (a higher group such as Fish or Plant) |
 
----
+A CSV template is available in the app sidebar.
 
-## Handling Counts & Presences
+## How counts and names are handled
 
-Many historical and opportunistic occurrence records lack individual specimen counts[cite: 1]. Veridalis treats missing or unreadable counts as presence ($n = 1$) without discarding the record[cite: 1]. The audit interface and generated reports state the exact number of presences evaluated this way[cite: 1].
+- **Missing counts.** Many occurrence records have no count. A missing or unreadable count is treated as presence (n = 1) and is not flagged. The audit panel and the report state how many records were treated this way. Indices computed from such records reflect how often species were recorded, not how abundant they are. A count of zero or less excludes the record.
+- **Passed.** "Passed" in the audit panel means a record has a taxon name, valid coordinates and a positive count. It does not mean the record is ecologically correct.
+- **Names.** Only completely empty cells count as missing in site and habitat fields. Values such as `NA`, `None` or `unknown` are kept as written. Species names written as two words are standardised to *Genus epithet* capitalisation, and extra spaces are removed. If one site identifier has several names, they are shown joined with " / ".
+- **Duplicates.** A duplicate is a record with the same species, location (5 decimal places), date and count as an earlier record.
 
-*Note:* Total individuals ($N$) represents the sum of abundances across records, which may exceed the total number of rows[cite: 1]. A "Passed" status in the audit panel indicates valid spatial and taxonomic coordinates; it does not constitute ecological verification[cite: 1].
-
----
-
-## Methods & Formulas
+## Methods
 
 | Metric | Formula | Reference |
 |---|---|---|
-| Shannon–Wiener $H'$ | $-\sum p_i \ln p_i$ | Shannon (1948)[cite: 1] |
-| Gini–Simpson $1 - D$ | $1 - \sum p_i^2$ | Simpson (1949)[cite: 1] |
-| Pielou Evenness $J'$ | $H' / \ln S$ | Pielou (1966)[cite: 1] |
-| Margalef Richness | $(S - 1) / \ln N$ | Margalef (1958)[cite: 1] |
+| Shannon-Wiener H′ | −Σ pᵢ ln pᵢ | Shannon (1948) |
+| Simpson 1 − D | 1 − Σ pᵢ² | Simpson (1949) |
+| Pielou evenness J′ | H′ / ln S | Pielou (1966) |
+| Margalef richness | (S − 1) / ln N | Margalef (1958) |
 
-$p_i$ is the proportion of total individuals belonging to species $i$[cite: 1]. Because $H'$ cannot exceed $\ln(S)$, species-poor sites will score low regardless of habitat condition[cite: 1]. Pielou's $J'$ is mathematically undefined when $S = 1$[cite: 1].
+pᵢ is the proportion of individuals belonging to species i. N is the sum of the counts, so it can exceed the number of records. H′ cannot exceed ln S, so species-poor sites score low whatever their habitat quality. J′ is undefined when S = 1.
 
-**Screening Flags:** Sites are flagged for review based on either[cite: 1]:
-1. *Absolute criteria:* $H'$ or $S$ falling below user-defined cut-offs (defaults: $H' < 2.00$ or $S < 4$)[cite: 1].
-2. *Relative criteria:* Sites falling at or below a user-selected percentile (e.g., the lower quartile $Q1$) of the dataset's $H'$ distribution[cite: 1].
+**Screening flags.**
+- *Absolute mode (default):* a site is marked "Review suggested" when H′ is below a threshold or S is below a minimum (defaults: H′ < 2.00 or S < 4).
+- *Relative mode:* a site is marked when its H′ is at or below a chosen percentile of the site values in the dataset (default: 25th). If every site has the same H′, no sites are flagged.
+- *Class bands:* defaults are High ≥ 3.00, Moderate ≥ 2.00, Low ≥ 1.00, otherwise Very low. They only set the class labels and map colours.
 
-A flag denotes only that a site fell within the lower screening tail; it does not serve as a regulatory determination of ecological degradation[cite: 1].
+All thresholds and bands are rough screening guides, not ecological standards, and they vary by taxon and habitat. A flag means only that a site fell outside the rule you chose. It is not a legal determination and says nothing about environmental condition.
 
----
+## Tested so far
 
-## Scope & Operational Realities
-
-To ensure appropriate scientific interpretation, users should observe the following domain considerations[cite: 1]:
-
-- **Opportunistic Records vs. Standardized Surveys:** GBIF downloads represent presence-only collection events rather than effort-controlled transects or plots[cite: 1]. Metrics calculated from presence data reflect recording activity alongside community composition[cite: 1].
-- **Single-Species Mathematical Limits ($S = 1$):** At sites with only one detected species, $H'$ is $0.0$ and $J' = \frac{0}{\ln(1)}$ is undefined[cite: 1]. Veridalis renders $J'$ as `0.0` to avoid division-by-zero application exceptions[cite: 1].
-- **Grid Cell Artifacts:** In sparse datasets without locality names, an isolated record placed into a $0.1^\circ$ cell yields $S = 1$, triggering an absolute screening flag[cite: 1]. Site-level flags should always be cross-referenced against whole-dataset values[cite: 1].
-- **No Taxonomic Backbone Scrubbing:** The software capitalizes two-part names and strips whitespace, but does not reconcile synonyms against external authorities (e.g., the GBIF Backbone Taxonomy)[cite: 1]. Synonyms or spelling variants are evaluated as independent species[cite: 1].
-- **No Effort Standardization:** The application does not apply rarefaction curves, detectability adjustments, or spatial autocorrelation models[cite: 1].
-
----
-
-## Tested Datasets
-
-| Dataset | Records | Species | Sites | Verification Result |
+| Dataset | Records | Species | Sites | Result |
 |---|---|---|---|---|
-| GBIF Slovenian Freshwater Records | 92 read, 90 analyzed, 2 excluded (1 missing coordinates, 1 duplicate)[cite: 1] | 1 (*Cyprinus carpio*)[cite: 1] | 82[cite: 1] | 35 missing dates flagged (non-critical); 87 records defaulted to presence ($n=1$); single-species guard triggered[cite: 1] |
-| GBIF Polish Salmonids (TSV export)[cite: 1] | 26 read, 26 analyzed[cite: 1] | 4[cite: 1] | 12 grid cells[cite: 1] | $H' = 0.939$, $1 - D = 0.512$, $J' = 0.677$ dataset-wide; results verified against hand calculation[cite: 1] |
+| GBIF occurrence export, Slovenian freshwater records | 92 read, 90 analysed, 2 excluded (1 missing coordinates, 1 duplicate) | 1 (*Cyprinus carpio*) | 82 | 35 records without a date (warning only); 87 of the 90 analysed records had no count; single-species warning shown |
+| GBIF occurrence export, Polish salmonids | 26 read, 26 analysed | 4 | 12 grid cells | Whole dataset: H′ = 0.939, 1 − D = 0.512, J′ = 0.677, Margalef = 0.921; no records flagged |
 
----
+For the Polish file, the whole-dataset values match a hand calculation from the species counts (17, 6, 2 and 1 records). The Slovenian file is a single-species set, so it tests the checks, not the diversity indices.
 
-## Run Locally (Offline First)
+The app was also run on small synthetic files with semicolon separators, decimal commas, unusual headers, blank counts, impossible coordinates, duplicates, and site names such as `NA`, `None` and `unknown`.
 
-For sensitive spatial records (such as protected or threatened species localities), Veridalis can be executed entirely offline on your local machine[cite: 1]:
+GBIF download DOIs for the two test files: add before release.
 
-### No Terminal Commands Required
-1. Download this repository by clicking **Code** $\rightarrow$ **Download ZIP**, and extract the archive[cite: 1].
-2. Ensure [Python 3.11+](https://www.python.org/downloads/) is installed (on Windows, ensure **"Add python.exe to PATH"** was checked during installation)[cite: 1].
-3. Run the launcher script:
-   - **Windows:** Double-click `run_veridalis.bat`
-   - **macOS / Linux:** Run `bash run_veridalis.sh` in Terminal
+There is no formal test suite or benchmark yet.
 
-The script will automatically set up the virtual environment (`.venv`), install dependencies from `requirements.txt`, and open the application in your browser at `http://localhost:8501`[cite: 1].
+## Limitations
 
-### Manual Setup
+- **Occurrence data are not surveys.** GBIF data are opportunistic records. Richness and evenness calculated from them are not survey estimates.
+- **Sampling effort.** Indices are not standardised for sample size or unequal effort between sites.
+- **Pooled taxa.** Abundances of different groups are pooled and are not comparable.
+- **Sparse grid cells.** A 0.1° cell with one species always has S = 1, so in a sparse file most per-cell flags reflect the grid, not the habitat. Read them together with the whole-dataset values.
+- **No uncertainty estimates.** No confidence intervals, spatial autocorrelation or detection corrections are applied.
+- **No taxonomic matching.** Names are not reconciled with a taxonomic backbone, so synonyms and misspellings count as separate species.
+- **Other record problems are not checked,** for example coordinate uncertainty, rounded coordinates, or records outside a species' known range. Duplicate detection is exact only.
+
+## Known issues
+
+- For sites with S = 1, J′ is shown as 0 instead of "n/a".
+- In absolute mode, a file with one species still shows site-level flags.
+- Long site names make tables wide.
+- Basemaps come from third-party tile servers and need an internet connection.
+
+## Run locally
+
+You do not need to install anything to try Veridalis: use the [live app](https://eco-audit-ai-avci9d7appmnzeehkhfppwf.streamlit.app). Run it on your own computer if your data are sensitive, if you want to work offline (map tiles still need internet), or if you want to change the code.
+
+You need [Python](https://www.python.org/downloads/) 3.11 or newer. On Windows, tick "Add python.exe to PATH" when installing. Veridalis was developed and tested on Windows with Python 3.14.
+
+### Option 1: launcher (first run installs everything)
+
+1. On GitHub choose **Code → Download ZIP** and extract it.
+2. **Windows:** double-click `run_veridalis.bat`. **macOS or Linux:** run `bash run_veridalis.sh` in a terminal.
+
+The launcher creates a private environment, installs the packages from `requirements.txt`, and opens the app at http://localhost:8501.
+
+### Option 2: manual
+
+```bash
+git clone https://github.com/ananyastack/eco-audit-ai.git
+cd eco-audit-ai
+```
 
 **Windows (PowerShell)**
+
 ```powershell
-git clone [https://github.com/ananyastack/eco-audit-ai.git](https://github.com/ananyastack/eco-audit-ai.git)
-cd eco-audit-ai
-python -m venv .venv
+py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m streamlit run app.py
+```
+
+**macOS and Linux**
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m streamlit run app.py
+```
+
+These commands call the environment's own Python, so nothing depends on your PATH. Press Ctrl+C in the terminal to stop the app. On later runs only the last command is needed.
+
+### Troubleshooting
+
+| Message | Fix |
+|---|---|
+| `pip` or `streamlit` "is not recognized" | Use the `python -m ...` commands above instead of calling `pip` or `streamlit` directly |
+| `Python was not found; run without arguments to install from the Microsoft Store` | Install Python from python.org, or turn off the Python entries under Settings > Apps > Advanced app settings > App execution aliases |
+| `py` is not recognized | Install Python from python.org with the "py launcher" option ticked, or use the full path to `python.exe` |
+| Long build error while installing pandas, numpy or pyarrow | Your Python version may be too new for the packages. Install Python 3.12 and create the environment with `py -3.12 -m venv .venv` |
+| `Port 8501 is already in use` | Add `--server.port 8502` to the last command |
+| The app says Excel export needs `openpyxl` | Run `.\.venv\Scripts\python.exe -m pip install openpyxl` (macOS and Linux: `.venv/bin/python -m pip install openpyxl`) |
+
+If something else goes wrong, please [open an issue](https://github.com/ananyastack/eco-audit-ai/issues) with your operating system, your Python version and the last 15 lines of the error.
+
+## Privacy
+
+Veridalis does not save uploaded files; they stay in memory for your session. The hosted app runs on Streamlit Community Cloud. For sensitive data, such as locations of threatened species, run Veridalis on your own computer.
+
+## Planned work
+
+- Unit tests and a benchmark against an established reference implementation
+- Show J′ as n/a and suppress site-level flags for single-species files
+- Hill numbers (q = 0, 1, 2) and the Chao1 richness estimator
+- Individual-based rarefaction curves
+- Per-taxon analysis
+- Taxonomic name reconciliation through the GBIF API
+
+## AI assistance
+
+AI coding assistants were used during development. The author tested the app on the datasets listed above and checked its outputs, including a hand calculation for the Polish file.
+
+## Citation
+
+If you use this software, please cite it using [`CITATION.cff`](CITATION.cff):
+
+> Samadder, A. (2026). *Veridalis: biodiversity data harmonization, quality control and screening* (version 0.1.0) [Software]. https://github.com/ananyastack/eco-audit-ai
+
+## License
+
+MIT. See [LICENSE](LICENSE).                       
