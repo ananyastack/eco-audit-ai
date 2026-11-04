@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Veridalis: biodiversity data harmonization, quality checking and screening"
+version: "0.1.0"
+date-released: "2026-11-04"
+license: MIT
+authors:
+  - family-names: Samadder
+    given-names: Ananya
+    orcid: "https://orcid.org/0009-0002-3774-9456"
+repository-code: "https://github.com/ananyastack/eco-audit-ai"
+url: "https://eco-audit-ai-avci9d7appmnzeehkhfppwf.streamlit.app"
+abstract: >-
+  Open-source web app that maps biodiversity survey and occurrence tables to
+  standard column names, runs basic automated quality checks, and screens the
+  data with richness, Shannon, Simpson, Pielou and Margalef indices, with an
+  interactive map and downloadable tables. Exploratory research software; not
+  a validated tool.
+keywords:
+  - biodiversity
+  - GBIF
+  - Darwin Core
+  - data quality
+  - ecology
