@@ -1,2 +1,5 @@
 *.bat text eol=crlf
 *.sh text eol=lf
+
+run_veridalis.bat linguist-vendored
+run_veridalis.sh linguist-vendored
