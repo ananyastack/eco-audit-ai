@@ -92,10 +92,10 @@ def _blank_to_na(series: pd.Series) -> pd.Series:
 
 
 def _empty_to_na(series: pd.Series) -> pd.Series:
-    """For names and labels: empty cells and the texts nan / none / null (any capitals) become
-    missing. Every other value, including 'NA' and 'unknown', is kept exactly as given."""
+    """For names and labels: only truly empty cells become missing. Every other value,
+    including 'NA', 'None', 'null' and 'unknown', is kept exactly as uploaded."""
     text = series.astype("string")
-    return text.mask(text.str.strip().str.lower().isin(["", "nan", "none", "null", "<na>"]))
+    return text.mask(text.str.strip().isin([""]))
 
 
 def _num(series: pd.Series) -> pd.Series:
@@ -119,7 +119,7 @@ def _tidy_name(value: object) -> object:
 
 
 def _join_unique(values: Iterable, limit: int = 3) -> str:
-    unique = list(dict.fromkeys(str(v).strip() for v in values if pd.notna(v) and str(v).strip() and str(v).lower() != "nan"))
+    unique = list(dict.fromkeys(str(v).strip() for v in values if pd.notna(v) and str(v).strip()))
     if not unique:
         return ""
     text = " / ".join(unique[:limit])
@@ -425,12 +425,12 @@ def classify_shannon(h_index: float, bands: tuple[float, float, float]) -> tuple
 
 
 def site_label(row: pd.Series) -> str:
-    """Prioritise actual human-assigned site names over synthetic IDs and grid cells."""
-    name = str(row.get("site_name") or "").strip()
+    """Show the site name exactly as uploaded; use the ID only when the name is truly empty."""
+    raw_name = row.get("site_name")
+    name = "" if raw_name is None or (not isinstance(raw_name, str) and pd.isna(raw_name)) else str(raw_name).strip()
     site_id = str(row.get("site_id") or "").strip()
 
-    # Check if a genuine site name exists
-    if name and name.lower() not in ["nan", "none", "<na>", "unspecified", ""]:
+    if name:
         if site_id and site_id != name and not site_id.startswith("cell_"):
             return f"{name} ({site_id})"
         return name
@@ -448,7 +448,7 @@ def compute_site_metrics(df: pd.DataFrame, bands: tuple[float, float, float] = (
 
         # Display the real site name if present, else site_id
         resolved_name = _join_unique(group["site_name"])
-        if not resolved_name or resolved_name.lower() == "nan":
+        if not resolved_name:
             resolved_name = str(site_id)
 
         records.append(
