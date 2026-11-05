@@ -757,18 +757,20 @@ def build_report(
         if not review_sites.empty
         else "No sites flagged."
     )
-     habitats = md_table(
+    habitats = md_table(
         habitat_summary(survey),
         ["habitat", "unique_species", "records", "sites"],
         ["Habitat", "Unique species", "Records", "Sites"],
     )
 
     single_species_note = (
-        ...
+        "- **Warning:** this dataset contains a single species, so diversity indices are not "
+        "meaningful (H′ is 0 by definition). The flags reflect this, not site condition.\n"
+        if global_metrics["richness"] <= 1
+        else ""
     )
 
     return (
-  
         f"# {APP_NAME} biodiversity screening report\n\n"
         + md_table(info)
         + "\n\n## 1. Scope\n\n"
@@ -780,7 +782,7 @@ def build_report(
         + md_table(summary)
         + "\n\n## 3. Screening criteria\n\n"
         f"- {criteria_rule}\n"
-        f"- Class bands (adjustable): High H′ ≥ {bands[0]:.2f}; Moderate ≥ {bands[1]:.2f}; Low ≥ {bands[2]:.2f}; otherwise Very low.\n" 
+        f"- Class bands (adjustable): High H′ ≥ {bands[0]:.2f}; Moderate ≥ {bands[1]:.2f}; Low ≥ {bands[2]:.2f}; otherwise Very low.\n"
         f"- Sites suggested for review: {len(review_sites)} of {len(site_metrics)}.\n"
         + single_species_note
         + "\n## 4. Unique species per habitat\n\n"
