@@ -150,7 +150,6 @@ def read_uploaded_table(uploaded) -> pd.DataFrame:
 
 
 # ------------------------------------------------- Darwin Core harmonization
-# The target name is always listed first, so an exact match wins.
 DARWIN_CORE_TERMS = {
     "site_id": ["site_id", "siteid", "site_code", "station", "station_id", "locationid", "plot_id", "site"],
     "site_name": ["site_name", "sitename", "site_names", "name_of_site", "site_label", "study_site",
@@ -167,10 +166,7 @@ DARWIN_CORE_TERMS = {
 
 
 def map_to_darwin_core(df: pd.DataFrame, overrides: dict | None = None) -> tuple[pd.DataFrame, dict]:
-    """Rename recognised columns to the standard names. Returns (table, mapping).
-
-    overrides maps a standard name to the user's chosen column, or to None to ignore it.
-    """
+    """Rename recognised columns to the standard names. Returns (table, mapping)."""
     table = df.loc[:, ~df.columns.duplicated()].copy()
     lookup: dict[str, str] = {}
     for column in table.columns:
@@ -510,25 +506,46 @@ def marker_color(status: str) -> str:
 
 
 def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
-    center = [site_metrics["latitude"].mean(), site_metrics["longitude"].mean()]
-    fmap = folium.Map(location=center, zoom_start=12, tiles=None, control_scale=True)
+    center = [float(site_metrics["latitude"].mean()), float(site_metrics["longitude"].mean())]
+    
+    # 1. Initialize map with a reliable base layer
+    fmap = folium.Map(
+        location=center,
+        zoom_start=12,
+        tiles="OpenStreetMap",
+        name="OpenStreetMap",
+        control_scale=True,
+    )
 
-    carto = "https://{s}.basemaps.cartocdn.com/%s/{z}/{x}/{y}{r}.png"
-    carto_attr = "© OpenStreetMap contributors © CARTO"
-    default = "Dark" if theme == "dark" else "Light"
-    base_layers = [
-        ("Light", carto % "light_all", carto_attr),
-        ("Dark", carto % "dark_all", carto_attr),
-        ("Streets", "https://tile.openstreetmap.org/{z}/{x}/{y}.png", "© OpenStreetMap contributors"),
-        (
-            "Satellite",
-            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-            "Esri",
-        ),
-    ]
-    for name, url, attr in base_layers:
-        folium.TileLayer(tiles=url, attr=attr, name=name, show=(name == default)).add_to(fmap)
+    # 2. Add CartoDB and Esri tile layers with correct attribution
+    carto_attr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    
+    folium.TileLayer(
+        tiles="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+        attr=carto_attr,
+        name="CartoDB Positron (Light)",
+        subdomains="abcd",
+        max_zoom=20,
+        show=(theme != "dark"),
+    ).add_to(fmap)
 
+    folium.TileLayer(
+        tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+        attr=carto_attr,
+        name="CartoDB Dark Matter",
+        subdomains="abcd",
+        max_zoom=20,
+        show=(theme == "dark"),
+    ).add_to(fmap)
+
+    folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr="Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community",
+        name="Esri Satellite",
+        max_zoom=18,
+    ).add_to(fmap)
+
+    # 3. Add clustered site markers
     cluster = MarkerCluster(name="Sampling sites").add_to(fmap)
     for _, row in site_metrics.iterrows():
         label = html.escape(site_label(row))
@@ -545,7 +562,7 @@ def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
             "</div>"
         )
         folium.CircleMarker(
-            location=[row["latitude"], row["longitude"]],
+            location=[float(row["latitude"]), float(row["longitude"])],
             radius=8 + min(int(row["richness"]), 20),
             color=marker_color(row["status"]),
             fill=True,
@@ -557,7 +574,7 @@ def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
 
     Fullscreen().add_to(fmap)
     MiniMap(toggle_display=True).add_to(fmap)
-    folium.LayerControl().add_to(fmap)
+    folium.LayerControl(collapsed=False).add_to(fmap)
     return fmap
 
 
