@@ -1,5 +1,5 @@
 # Veridalis
-
+[![DOI](https://zenodo.org/badge/1426789585.svg)](https://doi.org/10.5281/zenodo.23980593)
 Open-source web app for harmonizing biodiversity occurrence data, checking its quality, and screening it with standard diversity indices.
 
 [Live app](https://eco-audit-ai-avci9d7appmnzeehkhfppwf.streamlit.app) · [Video walkthrough](https://youtu.be/pPBQ-fytl7c) · [MIT License](LICENSE) · [Citation](#citation)
