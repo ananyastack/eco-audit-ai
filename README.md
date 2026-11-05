@@ -15,18 +15,19 @@ The repository is named `eco-audit-ai`; the software is called Veridalis.
 ## Features
 
 - **Flexible reading.** Comma-, tab-, semicolon- and pipe-separated text files (`.csv`, `.tsv`, `.txt`), UTF-8 or Latin-1, decimal commas, up to 200,000 rows. Zipped GBIF downloads must be unzipped first.
-- **Column recognition.** Recognises common names such as `scientificName`, `decimalLatitude`, `decimalLongitude`, `individualCount` and `locality`, and shows the mapping it used. If a required column is not recognised, you choose it from a list.
+- **Column recognition.** Recognises common names such as `scientificName`, `decimalLatitude`, `decimalLongitude`, `individualCount` and `locality`, and shows the mapping it used. If a required column is not recognised, you choose it from a list. Optional columns, such as site name, site ID, date and habitat, can be changed or ignored under Column mapping.
 - **Quality checks.**
   - *Excluded from analysis:* records with no taxon name, missing or unreadable coordinates, coordinates at exactly (0, 0), coordinates out of range, suspected swapped latitude and longitude, non-positive counts, and exact duplicate records (duplicate exclusion can be switched off in the sidebar).
   - *Warning only, record kept:* missing, unreadable or future dates.
   - For GBIF files, GBIF's own issue flags are listed separately for reference. They are not used to exclude records.
 - **Diversity indices** per site and for the whole dataset: species richness (S), individuals (N), Shannon-Wiener H′ (natural log), Simpson 1 − D, Pielou J′ and Margalef richness.
-- **Sites.** Site identifiers and names are used exactly as written. Records with neither a site identifier nor a site name are grouped into 0.1° grid cells named `cell_<lat>_<lon>`.
+- **Sites.** Site identifiers and names are used exactly as written, and tables and the map show the site name first. If a file has no recognised name column, names are the same as identifiers; choose the right column under Column mapping. Records with neither a site identifier nor a site name are grouped into 0.1° grid cells named `cell_<lat>_<lon>`.
 - **Unique species per habitat.** A table of unique species, records and sites for each habitat.
 - **Screening.** Sites can be flagged for review with absolute thresholds (H′ and S) or relative to the dataset (lowest-H′ sites). The High / Moderate / Low class bands are adjustable. The rule in use is shown above the table and in the report.
-- **Map.** Interactive map with markers coloured by diversity class, clustered markers and switchable basemaps.
+- **Map.** Interactive map with markers coloured by diversity class, clustered markers and switchable basemaps (Esri light gray, dark gray, streets and satellite, and OpenStreetMap). The map opens zoomed to your sites.
 - **Outputs.** Cleaned analysis table, flagged records and site metrics (CSV); a screening report with tables (Markdown, previewed in the app); an Excel workbook with one sheet per table (needs `openpyxl`); a Gmail draft button.
-- **Single-species warning.** If a file contains one species, the app states that the diversity indices are not meaningful.
+- **Single-species warning.** If a file contains one species, the app and the screening report state that the diversity indices are not meaningful.
+- **Demonstration data.** With no file uploaded, the app shows a built-in synthetic survey so you can explore it straight away.
 
 ## Input
 
@@ -38,8 +39,8 @@ Header matching ignores case and punctuation. Only species, latitude and longitu
 | `latitude` | Yes | `latitude`, `decimalLatitude`, `lat`, `decimal_latitude`, `latitude_dd` |
 | `longitude` | Yes | `longitude`, `decimalLongitude`, `lon`, `lng`, `long`, `decimal_longitude`, `longitude_dd` |
 | `abundance` | No | `abundance`, `individualCount`, `count`, `n`, `individuals`, `organismQuantity` |
-| `site_id` | No | `site_id`, `station`, `station_id`, `locationID`, `site` |
-| `site_name` | No | `site_name`, `locality`, `verbatimLocality`, `location` |
+| `site_id` | No | `site_id`, `siteid`, `site_code`, `station`, `station_id`, `locationID`, `plot_id`, `site` |
+| `site_name` | No | `site_name`, `sitename`, `name_of_site`, `site_label`, `study_site`, `station_name`, `location_name`, `locality`, `verbatimLocality`, `location`, `place`, `village`, `sampling_site`, or any header that combines a place word with "name" or "label". `site` counts as a name when the file also has a separate site-ID column |
 | `date` | No | `date`, `eventDate`, `event_date`, `observed_on` |
 | `habitat` | No | `habitat`, `verbatimHabitat` |
 | `taxon` | No | `taxon`, `class` (a higher group such as Fish or Plant) |
@@ -50,7 +51,7 @@ A CSV template is available in the app sidebar.
 
 - **Missing counts.** Many occurrence records have no count. A missing or unreadable count is treated as presence (n = 1) and is not flagged. The audit panel and the report state how many records were treated this way. Indices computed from such records reflect how often species were recorded, not how abundant they are. A count of zero or less excludes the record.
 - **Passed.** "Passed" in the audit panel means a record has a taxon name, valid coordinates and a positive count. It does not mean the record is ecologically correct.
-- **Names.** Only completely empty cells count as missing in site and habitat fields. Values such as `NA`, `None` or `unknown` are kept as written. Species names written as two words are standardised to *Genus epithet* capitalisation, and extra spaces are removed. If one site identifier has several names, they are shown joined with " / ".
+- **Names.** In site and habitat fields only completely empty cells count as missing; every other value, including `NA`, `None`, `null` and `unknown`, is kept exactly as uploaded (a site typed as `NA` is a site called NA). In species names, empty values and `NA`, `N/A`, `None`, `null` or `unknown` are treated as missing and the record is excluded. Species names written as two words are standardised to *Genus epithet* capitalisation, and extra spaces are removed. If one site identifier has several names, they are shown joined with " / ".
 - **Duplicates.** A duplicate is a record with the same species, location (5 decimal places), date and count as an earlier record.
 
 ## Methods
@@ -80,9 +81,7 @@ All thresholds and bands are rough screening guides, not ecological standards, a
 
 For the Polish file, the whole-dataset values match a hand calculation from the species counts (17, 6, 2 and 1 records). The Slovenian file is a single-species set, so it tests the checks, not the diversity indices.
 
-The app was also run on small synthetic files with semicolon separators, decimal commas, unusual headers, blank counts, impossible coordinates, duplicates, and site names such as `NA`, `None` and `unknown`.
-
-GBIF download DOIs for the two test files: add before release.
+The app was also run on small synthetic files with semicolon separators, decimal commas, unusual headers, blank counts, impossible coordinates and duplicates.
 
 There is no formal test suite or benchmark yet.
 
@@ -99,9 +98,9 @@ There is no formal test suite or benchmark yet.
 ## Known issues
 
 - For sites with S = 1, J′ is shown as 0 instead of "n/a".
-- In absolute mode, a file with one species still shows site-level flags.
-- Long site names make tables wide.
-- Basemaps come from third-party tile servers and need an internet connection.
+- In absolute mode, a file with one species still shows site-level flags; the screening report adds a warning line.
+- Long site names make tables wide. When a file has no site IDs, the Site ID column repeats the site name.
+- Basemaps come from third-party tile servers (Esri and OpenStreetMap) and need an internet connection. Providers can change their access rules without notice; if a layer looks blank or carries a watermark, choose another in the layer list on the map.
 
 ## Run locally
 
@@ -111,10 +110,12 @@ You need [Python](https://www.python.org/downloads/) 3.11 or newer. On Windows, 
 
 ### Option 1: launcher (first run installs everything)
 
-1. On GitHub choose **Code → Download ZIP** and extract it.
-2. **Windows:** double-click `run_veridalis.bat`. **macOS or Linux:** run `bash run_veridalis.sh` in a terminal.
+1. On GitHub choose **Code → Download ZIP**, then right-click the ZIP and choose **Extract All**.
+2. Open the extracted folder. **Windows:** double-click `run_veridalis.bat`. **macOS or Linux:** run `bash run_veridalis.sh` in a terminal opened in that folder.
 
-The launcher creates a private environment, installs the packages from `requirements.txt`, and opens the app at http://localhost:8501.
+The launcher creates a private environment, installs the packages from `requirements.txt`, and opens the app in your browser (usually at http://localhost:8501). The first run needs an internet connection and takes a few minutes; later runs start in seconds. Keep the launcher next to `app.py`. If Windows shows "Windows protected your PC", click **More info**, then **Run anyway**.
+
+To reinstall the packages after an update, run `run_veridalis.bat update` (macOS and Linux: `bash run_veridalis.sh update`).
 
 ### Option 2: manual
 
@@ -145,6 +146,8 @@ These commands call the environment's own Python, so nothing depends on your PAT
 
 | Message | Fix |
 |---|---|
+| `Could not find app.py next to this file` | Extract the whole ZIP and run the launcher from the extracted folder, next to `app.py` |
+| `Windows protected your PC` | Click **More info**, then **Run anyway** |
 | `pip` or `streamlit` "is not recognized" | Use the `python -m ...` commands above instead of calling `pip` or `streamlit` directly |
 | `Python was not found; run without arguments to install from the Microsoft Store` | Install Python from python.org, or turn off the Python entries under Settings > Apps > Advanced app settings > App execution aliases |
 | `py` is not recognized | Install Python from python.org with the "py launcher" option ticked, or use the full path to `python.exe` |
@@ -167,6 +170,9 @@ Veridalis does not save uploaded files; they stay in memory for your session. Th
 - Per-taxon analysis
 - Taxonomic name reconciliation through the GBIF API
 
+## Acknowledgements
+
+Thanks to Alok Paul, doctoral researcher at the Indian Institute of Science (IISc), Bengaluru, for beta testing Veridalis on his own field data. His feedback on the report layout and site names led to changes in the app.
 
 ## Citation
 
@@ -176,4 +182,4 @@ If you use this software, please cite it using [`CITATION.cff`](CITATION.cff):
 
 ## License
 
-MIT. See [LICENSE](LICENSE).                       
+MIT. See [LICENSE](LICENSE).
