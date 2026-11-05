@@ -536,14 +536,13 @@ def marker_color(status: str) -> str:
     return {"High": "green", "Moderate": "orange", "Low": "red", "Very low": "darkred"}.get(status, "blue")
 
 
-# Base maps that need no account or API key. Each provider's free tiles may be used with
-# attribution, which Leaflet shows in the corner of the map. OpenStreetMap's own tile
-# server is not used: it is meant for light use and can return an "Access blocked" tile
-# to embedded apps. The CARTO tiles below are built from OpenStreetMap data.
-CARTO_ATTR = (
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors '
-    '&copy; <a href="https://carto.com/attributions">CARTO</a>'
-)
+# Base maps used without an account or API key (checked November 2026). Each provider's
+# free tiles are used with attribution, which Leaflet shows in the corner of the map.
+# CARTO's tiles are NOT used: since August 2026 they return an "API KEY REQUIRED"
+# watermark to requests without a key. If a provider changes its rules again, edit or
+# remove its entry here; the other layers keep working.
+OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+ESRI_GRAY_ATTR = "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, NGA, USGS"
 ESRI_STREET_ATTR = (
     "Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, "
     "Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012"
@@ -554,15 +553,17 @@ ESRI_IMAGERY_ATTR = (
 )
 ESRI_REST = "https://server.arcgisonline.com/ArcGIS/rest/services"
 
-# name, tile URL, attribution, subdomains, highest zoom the provider really serves
+# name, tile URL, attribution, subdomains, highest zoom the provider really serves.
+# Above that zoom the map enlarges the last good tile instead of showing grey squares
+# ("Map data not yet available"), which is common for satellite imagery in rural areas.
 BASE_LAYERS = [
-    ("Light (CARTO)", "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", CARTO_ATTR, "abcd", 20),
-    ("Dark (CARTO)", "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", CARTO_ATTR, "abcd", 20),
-    ("Streets (Esri)", f"{ESRI_REST}/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_STREET_ATTR, "abc", 19),
-    # Satellite imagery is missing at high zoom in many rural areas ("Map data not yet
-    # available"). Stopping real requests at zoom 17 makes the map enlarge the last good
-    # tile instead of showing grey squares.
+    ("Light gray (Esri)", f"{ESRI_REST}/Canvas/World_Light_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_GRAY_ATTR, "abc", 16),
+    ("Dark gray (Esri)", f"{ESRI_REST}/Canvas/World_Dark_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_GRAY_ATTR, "abc", 16),
+    ("Streets (Esri)", f"{ESRI_REST}/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_STREET_ATTR, "abc", 17),
     ("Satellite (Esri)", f"{ESRI_REST}/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_IMAGERY_ATTR, "abc", 17),
+    # A second, independent provider. OpenStreetMap's public server is meant for light use
+    # and can refuse embedded apps, so it is an extra choice, not the default.
+    ("Streets (OpenStreetMap)", "https://tile.openstreetmap.org/{z}/{x}/{y}.png", OSM_ATTR, "abc", 19),
 ]
 
 
@@ -584,7 +585,7 @@ def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
         folium.Element('<meta name="referrer" content="strict-origin-when-cross-origin">')
     )
 
-    default = "Dark (CARTO)" if theme == "dark" else "Light (CARTO)"
+    default = "Dark gray (Esri)" if theme == "dark" else "Light gray (Esri)"
     for name, url, attr, subdomains, native_zoom in BASE_LAYERS:
         folium.TileLayer(
             tiles=url,
@@ -634,11 +635,18 @@ def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
         )
 
     Fullscreen().add_to(fmap)
-    # The mini-map would otherwise draw its own tiles from OpenStreetMap's public server
+    # The mini-map draws its own tiles; give it the same keyless light-gray layer
+    mini = MiniMap(toggle_display=True)
     try:
-        MiniMap(tile_layer="CartoDB Positron", toggle_display=True).add_to(fmap)
+        mini.tile_layer = folium.TileLayer(
+            tiles=BASE_LAYERS[0][1],
+            attr=BASE_LAYERS[0][2],
+            max_native_zoom=BASE_LAYERS[0][4],
+            max_zoom=19,
+        )
     except Exception:
-        MiniMap(toggle_display=True).add_to(fmap)
+        pass
+    mini.add_to(fmap)
     folium.LayerControl(collapsed=False).add_to(fmap)
     return fmap
 
@@ -1071,7 +1079,7 @@ def main() -> None:
     st.subheader("Sampling site map")
     render_map(build_map(site_metrics, theme))
     st.caption(
-        "Base maps come from CARTO and Esri, which need no account or key, and use an internet connection. "
+        "Base maps come from Esri and OpenStreetMap and need an internet connection. "
         "If one layer looks blank, choose another in the layer list at the top right of the map."
     )
 
