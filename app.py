@@ -14,6 +14,7 @@ app locally for sensitive data.
 from __future__ import annotations
 
 import csv
+import hashlib
 import html
 import io
 import math
@@ -26,21 +27,14 @@ import folium
 import numpy as np
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 from folium.plugins import Fullscreen, MarkerCluster, MiniMap
+from streamlit_folium import st_folium
 
 APP_NAME = "Veridalis"
 MAX_ROWS = 200_000
 SURVEY_COLUMNS = [
-    "site_id",
-    "site_name",
-    "latitude",
-    "longitude",
-    "species",
-    "abundance",
-    "taxon",
-    "habitat",
-    "date",
+    "site_id", "site_name", "latitude", "longitude",
+    "species", "abundance", "taxon", "habitat", "date",
 ]
 MUST_MAP = {
     "species": "species / scientific name",
@@ -156,9 +150,12 @@ def read_uploaded_table(uploaded) -> pd.DataFrame:
 
 
 # ------------------------------------------------- Darwin Core harmonization
+# The target name is always listed first, so an exact match wins.
 DARWIN_CORE_TERMS = {
-    "site_id": ["site_id", "station", "station_id", "locationid", "site"],
-    "site_name": ["site_name", "locality", "verbatimlocality", "location"],
+    "site_id": ["site_id", "siteid", "site_code", "station", "station_id", "locationid", "plot_id", "site"],
+    "site_name": ["site_name", "sitename", "site_names", "name_of_site", "site_label", "study_site",
+                  "station_name", "location_name", "locality", "locality_name", "verbatimlocality",
+                  "location", "place", "place_name"],
     "species": ["species", "scientificname", "scientific_name", "taxon_name", "verbatimscientificname"],
     "latitude": ["latitude", "decimallatitude", "lat", "decimal_latitude", "latitude_dd"],
     "longitude": ["longitude", "decimallongitude", "lon", "lng", "long", "decimal_longitude", "longitude_dd"],
@@ -169,23 +166,41 @@ DARWIN_CORE_TERMS = {
 }
 
 
-def map_to_darwin_core(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
-    """Rename recognised columns to the standard names. Returns (table, mapping)."""
+def map_to_darwin_core(df: pd.DataFrame, overrides: dict | None = None) -> tuple[pd.DataFrame, dict]:
+    """Rename recognised columns to the standard names. Returns (table, mapping).
+
+    overrides maps a standard name to the user's chosen column, or to None to ignore it.
+    """
     table = df.loc[:, ~df.columns.duplicated()].copy()
     lookup: dict[str, str] = {}
     for column in table.columns:
         lookup.setdefault(_norm_header(column), column)
 
-    rename: dict[str, str] = {}
     mapping: dict[str, str] = {}
     for target, candidates in DARWIN_CORE_TERMS.items():
         for candidate in candidates:
             source = lookup.get(candidate)
-            if source is not None and source not in rename:
-                rename[source] = target
+            if source is not None and source not in mapping.values():
                 mapping[target] = source
                 break
-    return table.rename(columns=rename), mapping
+
+    ignored = []
+    for target, source in (overrides or {}).items():
+        mapping.pop(target, None)
+        if source is None:
+            ignored.append(target)
+            continue
+        for other in [t for t, s in mapping.items() if s == source]:
+            mapping.pop(other)
+        mapping[target] = source
+
+    for target in ignored:
+        if target in table.columns:
+            table = table.rename(columns={target: f"{target}_ignored"})
+    for target, source in mapping.items():
+        if target in table.columns and source != target:
+            table = table.drop(columns=[target])
+    return table.rename(columns={source: target for target, source in mapping.items()}), mapping
 
 
 # ----------------------------------------------------------- quality checks
@@ -334,11 +349,8 @@ def prepare_survey(audited: pd.DataFrame, report: dict) -> pd.DataFrame:
     return survey[SURVEY_COLUMNS].reset_index(drop=True)
 
 
-def process_table(raw: pd.DataFrame, mapping_override: dict | None, exclude_duplicates: bool):
-    mapped, mapping = map_to_darwin_core(raw)
-    if mapping_override:
-        mapped = mapped.rename(columns={v: k for k, v in mapping_override.items()})
-        mapping = {**mapping, **mapping_override}
+def process_table(raw: pd.DataFrame, overrides: dict | None, exclude_duplicates: bool):
+    mapped, mapping = map_to_darwin_core(raw, overrides)
     audited = run_quality_checks(mapped, exclude_duplicates)
     report = build_audit_report(audited, mapping)
     survey = prepare_survey(audited, report)
@@ -497,33 +509,25 @@ def marker_color(status: str) -> str:
     return {"High": "green", "Moderate": "orange", "Low": "red", "Very low": "darkred"}.get(status, "blue")
 
 
-# 100% free tiles that do not require an API key
-ESRI_REST = "https://server.arcgisonline.com/ArcGIS/rest/services"
-ESRI_ATTR = "Tiles © Esri — Source: Esri, DeLorme, USGS, NPS"
-OSM_ATTR = "© OpenStreetMap contributors"
-
-BASE_LAYERS = [
-    ("Light", f"{ESRI_REST}/Canvas/World_Light_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_ATTR, 16),
-    ("Dark", f"{ESRI_REST}/Canvas/World_Dark_Gray_Base/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_ATTR, 16),
-    ("Streets", "https://tile.openstreetmap.org/{z}/{x}/{y}.png", OSM_ATTR, 19),
-    ("Satellite", f"{ESRI_REST}/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}", "Tiles © Esri", 19),
-]
-
-
 def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
     center = [site_metrics["latitude"].mean(), site_metrics["longitude"].mean()]
-    fmap = folium.Map(location=center, zoom_start=12, tiles=None, control_scale=True, max_zoom=19)
+    fmap = folium.Map(location=center, zoom_start=12, tiles=None, control_scale=True)
 
+    carto = "https://{s}.basemaps.cartocdn.com/%s/{z}/{x}/{y}{r}.png"
+    carto_attr = "© OpenStreetMap contributors © CARTO"
     default = "Dark" if theme == "dark" else "Light"
-    for name, url, attr, native_zoom in BASE_LAYERS:
-        folium.TileLayer(
-            tiles=url,
-            attr=attr,
-            name=name,
-            show=(name == default),
-            max_native_zoom=native_zoom,
-            max_zoom=19,
-        ).add_to(fmap)
+    base_layers = [
+        ("Light", carto % "light_all", carto_attr),
+        ("Dark", carto % "dark_all", carto_attr),
+        ("Streets", "https://tile.openstreetmap.org/{z}/{x}/{y}.png", "© OpenStreetMap contributors"),
+        (
+            "Satellite",
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            "Esri",
+        ),
+    ]
+    for name, url, attr in base_layers:
+        folium.TileLayer(tiles=url, attr=attr, name=name, show=(name == default)).add_to(fmap)
 
     cluster = MarkerCluster(name="Sampling sites").add_to(fmap)
     for _, row in site_metrics.iterrows():
@@ -626,11 +630,16 @@ def build_report(
         flag_rows = pd.DataFrame(
             {"Flag": list(audit["issue_counts"]), "Records": list(audit["issue_counts"].values())}
         )
+        mapping_rows = pd.DataFrame(
+            {"Standard field": list(audit["mapping"]), "Your column": list(audit["mapping"].values())}
+        )
         quality = (
             "## Data quality (automated checks)\n\n"
             + md_table(quality_rows)
             + "\n\n"
             + (md_table(flag_rows) if not flag_rows.empty else "No flags raised.")
+            + "\n\n**Columns used**\n\n"
+            + md_table(mapping_rows)
             + "\n\n"
         )
 
@@ -737,9 +746,13 @@ def to_csv_bytes(df: pd.DataFrame) -> bytes:
     return df.to_csv(index=False).encode("utf-8")
 
 
-def ask_for_missing_columns(mapped: pd.DataFrame, mapping: dict) -> dict:
-    """If key columns were not recognised, let the user pick them. Returns overrides."""
-    missing = [key for key in MUST_MAP if key not in mapped.columns]
+def _columns_key(raw: pd.DataFrame) -> str:
+    return hashlib.md5("|".join(map(str, raw.columns)).encode("utf-8")).hexdigest()[:8]
+
+
+def ask_for_missing_columns(raw: pd.DataFrame, mapping: dict) -> dict:
+    """If required columns were not recognised, let the user pick them. Returns overrides."""
+    missing = [key for key in MUST_MAP if key not in mapping]
     if not missing:
         return {}
     st.warning(
@@ -747,9 +760,10 @@ def ask_for_missing_columns(mapped: pd.DataFrame, mapping: dict) -> dict:
         + ", ".join(MUST_MAP[key] for key in missing)
         + ". Please choose them from your file."
     )
-    options = ["(choose)"] + list(mapped.columns)
+    options = ["(choose)"] + list(raw.columns)
+    token = _columns_key(raw)
     picks = {
-        key: st.selectbox(f"Which column holds {MUST_MAP[key]}?", options, key=f"map_{key}")
+        key: st.selectbox(f"Which column holds {MUST_MAP[key]}?", options, key=f"map_{key}_{token}")
         for key in missing
     }
     if any(value == "(choose)" for value in picks.values()):
@@ -758,6 +772,39 @@ def ask_for_missing_columns(mapped: pd.DataFrame, mapping: dict) -> dict:
         st.error("Each field needs a different column.")
         st.stop()
     return picks
+
+
+OPTIONAL_LABELS = {
+    "site_id": "Site ID",
+    "site_name": "Site name",
+    "abundance": "Count / abundance",
+    "date": "Date",
+    "habitat": "Habitat",
+    "taxon": "Taxon group",
+}
+
+
+def optional_column_overrides(raw: pd.DataFrame, mapping: dict) -> dict:
+    """Let the user change or ignore optional columns that were picked automatically."""
+    overrides: dict = {}
+    token = _columns_key(raw)
+    with st.expander("Column mapping: change it if a column was not recognised"):
+        st.caption(
+            "Veridalis chose these columns automatically. Pick a different column, or “(none)” to ignore one."
+        )
+        options = ["(automatic)", "(none)"] + list(raw.columns)
+        for target, label in OPTIONAL_LABELS.items():
+            auto = mapping.get(target)
+            choice = st.selectbox(
+                f"{label} (automatic: {auto if auto else 'not found'})",
+                options,
+                key=f"opt_{target}_{token}",
+            )
+            if choice == "(none)":
+                overrides[target] = None
+            elif choice != "(automatic)":
+                overrides[target] = choice
+    return overrides
 
 
 def render_audit(report: dict, audited: pd.DataFrame, survey: pd.DataFrame) -> None:
@@ -890,8 +937,10 @@ def main() -> None:
     if len(raw) >= MAX_ROWS:
         st.warning(f"Only the first {MAX_ROWS:,} rows were read.")
 
-    mapped_preview, auto_mapping = map_to_darwin_core(raw)
-    overrides = ask_for_missing_columns(mapped_preview, auto_mapping)
+    _, auto_mapping = map_to_darwin_core(raw)
+    overrides = dict(ask_for_missing_columns(raw, auto_mapping))
+    if uploaded is not None:
+        overrides.update(optional_column_overrides(raw, {**auto_mapping, **overrides}))
 
     try:
         survey, audited, audit_report = process_table(raw, overrides, exclude_duplicates)
@@ -901,6 +950,12 @@ def main() -> None:
 
     if uploaded is not None:
         render_audit(audit_report, audited, survey)
+        if (survey["site_name"] == survey["site_id"]).all():
+            st.info(
+                "No separate site-name column was recognised, so site names are the same as site IDs "
+                "(or grid cells). If your file has a column of site names, choose it under "
+                "“Column mapping” above."
+            )
 
     site_metrics = compute_site_metrics(survey, bands)
     global_metrics = compute_global_metrics(survey)
@@ -925,8 +980,7 @@ def main() -> None:
     )
 
     st.subheader("Sampling site map")
-    fmap = build_map(site_metrics, theme)
-    components.html(fmap.get_root().render(), height=540)
+    st_folium(build_map(site_metrics, theme), height=520, use_container_width=True, returned_objects=[], key="site_map")
 
     st.subheader("Site biodiversity metrics")
     st.caption(criteria_rule)
