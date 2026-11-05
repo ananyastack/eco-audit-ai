@@ -2,9 +2,7 @@
 [![DOI](https://zenodo.org/badge/1426789585.svg)](https://doi.org/10.5281/zenodo.23980593)
 Open-source web app for harmonizing biodiversity occurrence data, checking its quality, and screening it with standard diversity indices.
 
-[Live app](https://eco-audit-ai-avci9d7appmnzeehkhfppwf.streamlit.app) · [Video walkthrough](https://youtu.be/pPBQ-fytl7c) · [MIT License](LICENSE) · [Citation](#citation)
-
-[![Veridalis video walkthrough](https://img.youtube.com/vi/pPBQ-fytl7c/maxresdefault.jpg)](https://youtu.be/pPBQ-fytl7c)
+[Live app](https://eco-audit-ai-avci9d7appmnzeehkhfppwf.streamlit.app) · [Veridalis Video walkthrough](https://youtu.be/OyFPzFBip_A) · [MIT License](LICENSE) · [Citation](#citation)
 
 Veridalis reads field survey tables and GBIF occurrence downloads, maps their columns to standard names (Darwin Core terms where they exist), runs quality checks, and reports richness, Shannon, Simpson, Pielou and Margalef indices per site and for the whole dataset, with an interactive map and downloadable tables. It is meant for students, researchers and field teams who want a quick, transparent look at a file before any further analysis.
 
