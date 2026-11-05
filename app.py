@@ -27,8 +27,13 @@ import folium
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from folium.plugins import Fullscreen, MarkerCluster, MiniMap
-from streamlit_folium import st_folium
+
+try:
+    from streamlit_folium import st_folium
+except ImportError:  # the map still works without this optional package
+    st_folium = None
 
 APP_NAME = "Veridalis"
 MAX_ROWS = 200_000
@@ -87,9 +92,10 @@ def _blank_to_na(series: pd.Series) -> pd.Series:
 
 
 def _empty_to_na(series: pd.Series) -> pd.Series:
-    """For names and labels: only truly empty values become missing. Text is kept exactly as given."""
+    """For names and labels: empty cells and the texts nan / none / null (any capitals) become
+    missing. Every other value, including 'NA' and 'unknown', is kept exactly as given."""
     text = series.astype("string")
-    return text.mask(text.str.strip().isin([""]))
+    return text.mask(text.str.strip().str.lower().isin(["", "nan", "none", "null", "<na>"]))
 
 
 def _num(series: pd.Series) -> pd.Series:
@@ -113,18 +119,15 @@ def _tidy_name(value: object) -> object:
 
 
 def _join_unique(values: Iterable, limit: int = 3) -> str:
-    unique = list(dict.fromkeys(str(v) for v in values if pd.notna(v)))
+    unique = list(dict.fromkeys(str(v).strip() for v in values if pd.notna(v) and str(v).strip() and str(v).lower() != "nan"))
+    if not unique:
+        return ""
     text = " / ".join(unique[:limit])
     return text + (" …" if len(unique) > limit else "")
 
 
 # ------------------------------------------------------- reading the upload
 def read_uploaded_table(uploaded) -> pd.DataFrame:
-    """Read CSV / TSV / semicolon / pipe-delimited text, whatever the encoding.
-
-    Only empty cells count as missing. Text such as 'NA' or 'None' is kept, so site
-    and habitat names are never silently changed.
-    """
     data = uploaded.getvalue()
     try:
         text = data.decode("utf-8-sig")
@@ -154,7 +157,8 @@ DARWIN_CORE_TERMS = {
     "site_id": ["site_id", "siteid", "site_code", "station", "station_id", "locationid", "plot_id", "site"],
     "site_name": ["site_name", "sitename", "site_names", "name_of_site", "site_label", "study_site",
                   "station_name", "location_name", "locality", "locality_name", "verbatimlocality",
-                  "location", "place", "place_name"],
+                  "location", "place", "place_name", "sampling_site", "sampling_location",
+                  "village", "village_name", "area_name", "site"],
     "species": ["species", "scientificname", "scientific_name", "taxon_name", "verbatimscientificname"],
     "latitude": ["latitude", "decimallatitude", "lat", "decimal_latitude", "latitude_dd"],
     "longitude": ["longitude", "decimallongitude", "lon", "lng", "long", "decimal_longitude", "longitude_dd"],
@@ -164,9 +168,22 @@ DARWIN_CORE_TERMS = {
     "taxon": ["taxon", "class"],
 }
 
+_PLACE_WORDS = {"site", "station", "plot", "location", "locality", "place", "village", "area", "spot", "point"}
+_NAME_WORDS = {"name", "names", "label", "labels"}
+
+
+def _guess_site_name_column(columns: Iterable, used: set) -> object:
+    """Last resort: a header that mixes a place word and a name word, such as 'Name of the site'."""
+    for column in columns:
+        if column in used:
+            continue
+        tokens = set(_norm_header(column).split("_"))
+        if tokens & _PLACE_WORDS and tokens & _NAME_WORDS:
+            return column
+    return None
+
 
 def map_to_darwin_core(df: pd.DataFrame, overrides: dict | None = None) -> tuple[pd.DataFrame, dict]:
-    """Rename recognised columns to the standard names. Returns (table, mapping)."""
     table = df.loc[:, ~df.columns.duplicated()].copy()
     lookup: dict[str, str] = {}
     for column in table.columns:
@@ -179,6 +196,11 @@ def map_to_darwin_core(df: pd.DataFrame, overrides: dict | None = None) -> tuple
             if source is not None and source not in mapping.values():
                 mapping[target] = source
                 break
+
+    if "site_name" not in mapping:
+        guess = _guess_site_name_column(table.columns, set(mapping.values()))
+        if guess is not None:
+            mapping["site_name"] = guess
 
     ignored = []
     for target, source in (overrides or {}).items():
@@ -211,7 +233,6 @@ CRITICAL_FLAGS = [
 
 
 def run_quality_checks(df: pd.DataFrame, exclude_duplicates: bool = True) -> pd.DataFrame:
-    """Vectorised checks. Adds quality_flag, usable and count_assumed columns."""
     out = df.copy()
     idx = out.index
 
@@ -311,7 +332,6 @@ def build_audit_report(audited: pd.DataFrame, mapping: dict) -> dict:
 
 
 def prepare_survey(audited: pd.DataFrame, report: dict) -> pd.DataFrame:
-    """Turn usable records into the analysis table. Names and labels are kept as given."""
     use = audited[audited["usable"]].copy()
     if use.empty:
         top = ", ".join(f"{k} ({v})" for k, v in list(report["issue_counts"].items())[:4]) or "none recorded"
@@ -321,6 +341,8 @@ def prepare_survey(audited: pd.DataFrame, report: dict) -> pd.DataFrame:
     empty = pd.Series(pd.NA, index=use.index, dtype="string")
     site_id = _empty_to_na(use["site_id"]) if "site_id" in use.columns else empty
     site_name = _empty_to_na(use["site_name"]) if "site_name" in use.columns else empty
+
+    # Keep real names and IDs distinct; fall back to grid cells if unassigned
     site_id = site_id.fillna(site_name).fillna(cell)
     site_name = site_name.fillna(site_id)
 
@@ -392,7 +414,6 @@ def margalef_index(richness: int, individuals: float) -> float:
 
 
 def classify_shannon(h_index: float, bands: tuple[float, float, float]) -> tuple[str, str]:
-    """Rough screening classes. The cut-offs are user-adjustable, not ecological standards."""
     high, moderate, low = bands
     if h_index >= high:
         return "High", "Diverse assemblage relative to the chosen bands."
@@ -404,10 +425,15 @@ def classify_shannon(h_index: float, bands: tuple[float, float, float]) -> tuple
 
 
 def site_label(row: pd.Series) -> str:
+    """Prioritise actual human-assigned site names over synthetic IDs and grid cells."""
     name = str(row.get("site_name") or "").strip()
     site_id = str(row.get("site_id") or "").strip()
-    if name and name.lower() != "nan":
-        return f"{site_id} — {name}" if site_id and site_id != name else name
+
+    # Check if a genuine site name exists
+    if name and name.lower() not in ["nan", "none", "<na>", "unspecified", ""]:
+        if site_id and site_id != name and not site_id.startswith("cell_"):
+            return f"{name} ({site_id})"
+        return name
     return site_id or "Unnamed site"
 
 
@@ -419,10 +445,16 @@ def compute_site_metrics(df: pd.DataFrame, bands: tuple[float, float, float] = (
         individuals = float(counts.sum())
         h_index = shannon_wiener(counts)
         status, rationale = classify_shannon(h_index, bands)
+
+        # Display the real site name if present, else site_id
+        resolved_name = _join_unique(group["site_name"])
+        if not resolved_name or resolved_name.lower() == "nan":
+            resolved_name = str(site_id)
+
         records.append(
             {
                 "site_id": site_id,
-                "site_name": _join_unique(group["site_name"]),
+                "site_name": resolved_name,
                 "latitude": float(group["latitude"].mean()),
                 "longitude": float(group["longitude"].mean()),
                 "habitat": _join_unique(group["habitat"]),
@@ -459,7 +491,6 @@ def compute_global_metrics(df: pd.DataFrame) -> dict:
 
 
 def habitat_summary(survey: pd.DataFrame) -> pd.DataFrame:
-    """Unique species, records and sites per habitat."""
     table = (
         survey.groupby("habitat")
         .agg(unique_species=("species", "nunique"), records=("species", "size"), sites=("site_id", "nunique"))
@@ -505,53 +536,74 @@ def marker_color(status: str) -> str:
     return {"High": "green", "Moderate": "orange", "Low": "red", "Very low": "darkred"}.get(status, "blue")
 
 
+# Base maps that need no account or API key. Each provider's free tiles may be used with
+# attribution, which Leaflet shows in the corner of the map. OpenStreetMap's own tile
+# server is not used: it is meant for light use and can return an "Access blocked" tile
+# to embedded apps. The CARTO tiles below are built from OpenStreetMap data.
+CARTO_ATTR = (
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors '
+    '&copy; <a href="https://carto.com/attributions">CARTO</a>'
+)
+ESRI_STREET_ATTR = (
+    "Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS, Intermap, iPC, NRCAN, "
+    "Esri Japan, METI, Esri China (Hong Kong), Esri (Thailand), TomTom, 2012"
+)
+ESRI_IMAGERY_ATTR = (
+    "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, "
+    "Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"
+)
+ESRI_REST = "https://server.arcgisonline.com/ArcGIS/rest/services"
+
+# name, tile URL, attribution, subdomains, highest zoom the provider really serves
+BASE_LAYERS = [
+    ("Light (CARTO)", "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", CARTO_ATTR, "abcd", 20),
+    ("Dark (CARTO)", "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", CARTO_ATTR, "abcd", 20),
+    ("Streets (Esri)", f"{ESRI_REST}/World_Street_Map/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_STREET_ATTR, "abc", 19),
+    # Satellite imagery is missing at high zoom in many rural areas ("Map data not yet
+    # available"). Stopping real requests at zoom 17 makes the map enlarge the last good
+    # tile instead of showing grey squares.
+    ("Satellite (Esri)", f"{ESRI_REST}/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}", ESRI_IMAGERY_ATTR, "abc", 17),
+]
+
+
 def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
-    center = [float(site_metrics["latitude"].mean()), float(site_metrics["longitude"].mean())]
-    
-    # 1. Initialize map with a reliable base layer
+    lats = site_metrics["latitude"].astype(float)
+    lons = site_metrics["longitude"].astype(float)
+    center = [float(lats.mean()), float(lons.mean())]
+
     fmap = folium.Map(
         location=center,
         zoom_start=12,
-        tiles="OpenStreetMap",
-        name="OpenStreetMap",
+        tiles=None,
         control_scale=True,
+        max_zoom=19,
+    )
+    # Ask the browser to send the page's origin to tile servers, so they can see where the
+    # request comes from.
+    fmap.get_root().header.add_child(
+        folium.Element('<meta name="referrer" content="strict-origin-when-cross-origin">')
     )
 
-    # 2. Add CartoDB and Esri tile layers with correct attribution
-    carto_attr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-    
-    folium.TileLayer(
-        tiles="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-        attr=carto_attr,
-        name="CartoDB Positron (Light)",
-        subdomains="abcd",
-        max_zoom=20,
-        show=(theme != "dark"),
-    ).add_to(fmap)
+    default = "Dark (CARTO)" if theme == "dark" else "Light (CARTO)"
+    for name, url, attr, subdomains, native_zoom in BASE_LAYERS:
+        folium.TileLayer(
+            tiles=url,
+            attr=attr,
+            name=name,
+            subdomains=subdomains,
+            max_native_zoom=native_zoom,
+            max_zoom=19,
+            control=True,
+            show=(name == default),
+        ).add_to(fmap)
 
-    folium.TileLayer(
-        tiles="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
-        attr=carto_attr,
-        name="CartoDB Dark Matter",
-        subdomains="abcd",
-        max_zoom=20,
-        show=(theme == "dark"),
-    ).add_to(fmap)
-
-    folium.TileLayer(
-        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attr="Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community",
-        name="Esri Satellite",
-        max_zoom=18,
-    ).add_to(fmap)
-
-    # 3. Add clustered site markers
+    # Sampling sites cluster
     cluster = MarkerCluster(name="Sampling sites").add_to(fmap)
     for _, row in site_metrics.iterrows():
         label = html.escape(site_label(row))
         popup_html = (
             '<div style="font-family:Georgia,serif;min-width:220px;color:#1b1b1b">'
-            f"<strong>{label}</strong><br/>"
+            f"<strong style='font-size:1.05rem;'>{label}</strong><br/>"
             f"Habitat: {html.escape(str(row['habitat']))}<br/>"
             f"Shannon–Wiener H′: {row['shannon']:.3f}<br/>"
             f"Simpson (1−D): {row['simpson']:.3f}<br/>"
@@ -572,10 +624,34 @@ def build_map(site_metrics: pd.DataFrame, theme: str) -> folium.Map:
             tooltip=f"{label} · H′ {row['shannon']:.3f}",
         ).add_to(cluster)
 
+    # Zoom to the sampling sites so the first view is never an empty stretch of map
+    spread = (float(lats.max() - lats.min()), float(lons.max() - lons.min()))
+    if len(site_metrics) > 1 and max(spread) > 1e-4:
+        fmap.fit_bounds(
+            [[float(lats.min()), float(lons.min())], [float(lats.max()), float(lons.max())]],
+            padding=(30, 30),
+            max_zoom=15,
+        )
+
     Fullscreen().add_to(fmap)
-    MiniMap(toggle_display=True).add_to(fmap)
+    # The mini-map would otherwise draw its own tiles from OpenStreetMap's public server
+    try:
+        MiniMap(tile_layer="CartoDB Positron", toggle_display=True).add_to(fmap)
+    except Exception:
+        MiniMap(toggle_display=True).add_to(fmap)
     folium.LayerControl(collapsed=False).add_to(fmap)
     return fmap
+
+
+def render_map(fmap: folium.Map) -> None:
+    """Show the map. Uses streamlit-folium when installed, plain embedded HTML otherwise."""
+    if st_folium is not None:
+        try:
+            st_folium(fmap, height=520, use_container_width=True, returned_objects=[], key="site_map")
+        except TypeError:  # other versions of streamlit-folium take a fixed width instead
+            st_folium(fmap, height=520, width=1100, returned_objects=[], key="site_map")
+        return
+    components.html(fmap.get_root().render(), height=540)
 
 
 # ----------------------------------------------------------------- report
@@ -608,7 +684,6 @@ def build_report(
     bands: tuple[float, float, float],
     audit: dict | None = None,
 ) -> str:
-    """Markdown report. Tables render in most viewers and read cleanly as plain text."""
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     review_sites = flags[flags["flag"] == "Review suggested"]
 
@@ -662,14 +737,14 @@ def build_report(
 
     site_table = md_table(
         site_metrics,
-        ["site_id", "site_name", "habitat", "records", "richness", "shannon", "simpson", "evenness", "status"],
-        ["Site ID", "Site name", "Habitat", "Records", "S", "H′", "1−D", "J′", "Class"],
+        ["site_name", "site_id", "habitat", "records", "richness", "shannon", "simpson", "evenness", "status"],
+        ["Site name", "Site ID", "Habitat", "Records", "S", "H′", "1−D", "J′", "Class"],
     )
     flag_table = (
         md_table(
             review_sites,
-            ["site_id", "site_name", "shannon", "richness", "status"],
-            ["Site ID", "Site name", "H′", "S", "Class"],
+            ["site_name", "site_id", "shannon", "richness", "status"],
+            ["Site name", "Site ID", "H′", "S", "Class"],
         )
         if not review_sites.empty
         else "No sites flagged."
@@ -724,7 +799,6 @@ def build_workbook(
     audit: dict | None,
     audited: pd.DataFrame | None,
 ) -> bytes | None:
-    """Excel workbook with one sheet per table. Returns None if openpyxl is not installed."""
     try:
         import openpyxl  # noqa: F401
     except ImportError:
@@ -768,7 +842,6 @@ def _columns_key(raw: pd.DataFrame) -> str:
 
 
 def ask_for_missing_columns(raw: pd.DataFrame, mapping: dict) -> dict:
-    """If required columns were not recognised, let the user pick them. Returns overrides."""
     missing = [key for key in MUST_MAP if key not in mapping]
     if not missing:
         return {}
@@ -802,7 +875,6 @@ OPTIONAL_LABELS = {
 
 
 def optional_column_overrides(raw: pd.DataFrame, mapping: dict) -> dict:
-    """Let the user change or ignore optional columns that were picked automatically."""
     overrides: dict = {}
     token = _columns_key(raw)
     with st.expander("Column mapping: change it if a column was not recognised"):
@@ -997,12 +1069,16 @@ def main() -> None:
     )
 
     st.subheader("Sampling site map")
-    st_folium(build_map(site_metrics, theme), height=520, use_container_width=True, returned_objects=[], key="site_map")
+    render_map(build_map(site_metrics, theme))
+    st.caption(
+        "Base maps come from CARTO and Esri, which need no account or key, and use an internet connection. "
+        "If one layer looks blank, choose another in the layer list at the top right of the map."
+    )
 
     st.subheader("Site biodiversity metrics")
     st.caption(criteria_rule)
     metrics_view = flags[
-        ["site_id", "site_name", "habitat", "records", "richness", "shannon", "simpson", "evenness", "status", "flag"]
+        ["site_name", "site_id", "habitat", "records", "richness", "shannon", "simpson", "evenness", "status", "flag"]
     ]
     st.dataframe(metrics_view, hide_index=True, width="stretch")
     st.download_button(
