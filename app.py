@@ -13,6 +13,7 @@ app locally for sensitive data.
 
 from __future__ import annotations
 
+import base64
 import csv
 import hashlib
 import html
@@ -21,6 +22,8 @@ import math
 import re
 import urllib.parse
 from datetime import datetime, timezone
+from functools import lru_cache
+from pathlib import Path
 from typing import Iterable
 
 import folium
@@ -37,6 +40,7 @@ except ImportError:  # the map still works without this optional package
 
 APP_NAME = "Veridalis"
 MAX_ROWS = 200_000
+ICON_FILE = Path(__file__).resolve().parent / "assets" / "veridalis_icon.png"
 SURVEY_COLUMNS = [
     "site_id", "site_name", "latitude", "longitude",
     "species", "abundance", "taxon", "habitat", "date",
@@ -965,16 +969,47 @@ def render_audit(report: dict, audited: pd.DataFrame, survey: pd.DataFrame) -> N
     st.divider()
 
 
+def _page_icon():
+    """The app icon from the assets folder, or the leaf emoji if the file is missing."""
+    try:
+        from PIL import Image
+
+        with Image.open(ICON_FILE) as image:
+            return image.copy()
+    except Exception:
+        return "🌿"
+
+
+@lru_cache(maxsize=1)
+def _logo_html() -> str:
+    """The icon as a small inline image for the page header; empty text if the file is missing."""
+    try:
+        from PIL import Image
+
+        resample = getattr(Image, "Resampling", Image).LANCZOS
+        with Image.open(ICON_FILE) as image:
+            small = image.convert("RGB").resize((136, 136), resample)
+        buffer = io.BytesIO()
+        small.save(buffer, format="PNG")
+        data = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return (
+            f'<img src="data:image/png;base64,{data}" alt="Veridalis logo" '
+            'style="height:68px;width:68px;border-radius:14px;flex-shrink:0;">'
+        )
+    except Exception:
+        return ""
+
+
 def main() -> None:
-    st.set_page_config(page_title=APP_NAME, page_icon="🌿", layout="wide")
+    st.set_page_config(page_title=APP_NAME, page_icon=_page_icon(), layout="wide")
     theme = viewer_theme()
 
     st.markdown(
         f"""
-        <div style="padding: 1.15rem 1.4rem; border: 1px solid rgba(128,128,128,0.35); background: rgba(128,128,128,0.08); border-radius: 18px; margin-bottom: 0.8rem; margin-top: 1rem;">
+        <div style="display: flex; align-items: center; gap: 1.1rem; padding: 1.15rem 1.4rem; border: 1px solid rgba(128,128,128,0.35); background: rgba(128,128,128,0.08); border-radius: 18px; margin-bottom: 0.8rem; margin-top: 1rem;">{_logo_html()}<div>
           <h1 style="margin: 0; font-family: Georgia, serif;">{APP_NAME}</h1>
           <p style="margin: 0.35rem 0 0 0; opacity: 0.85;">Biodiversity data harmonization, quality control and screening for field surveys and occurrence records.</p>
-        </div>
+        </div></div>
         """,
         unsafe_allow_html=True,
     )
