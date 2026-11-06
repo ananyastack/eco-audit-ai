@@ -176,7 +176,7 @@ Thanks to Alok Paul, doctoral researcher at the Indian Institute of Science (IIS
 
 If you use this software, please cite it using [`CITATION.cff`](CITATION.cff):
 
-> Samadder, A. (2026). *Veridalis: biodiversity data harmonization, quality checking and screening* (version 0.1.0) [Software]. https://github.com/ananyastack/eco-audit-ai
+> Samadder, A. (2026). *Veridalis: biodiversity data harmonization, quality checking and screening* (version 1.0.0) [Software]. https://github.com/ananyastack/eco-audit-ai
 
 ## License
 
