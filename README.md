@@ -6,7 +6,7 @@ Open-source web app for harmonizing biodiversity occurrence data, checking its q
 
 Veridalis reads field survey tables and GBIF occurrence downloads, maps their columns to standard names (Darwin Core terms where they exist), runs quality checks, and reports richness, Shannon, Simpson, Pielou and Margalef indices per site and for the whole dataset, with an interactive map and downloadable tables. It is meant for students, researchers and field teams who want a quick, transparent look at a file before any further analysis.
 
-> **Version 0.1.0. Exploratory research software; not a validated tool.** It does not replace expert ecological judgement, statutory environmental assessments or protected-species surveys. Read [Limitations](#limitations) and [Known issues](#known-issues) before interpreting any output.
+> **Version 1.0.0. Exploratory research software; not a validated tool.** It does not replace expert ecological judgement, statutory environmental assessments or protected-species surveys. Read [Limitations](#limitations) and [Known issues](#known-issues) before interpreting any output.
 
 The repository is named `eco-audit-ai`; the software is called Veridalis.
 
